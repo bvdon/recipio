@@ -1,0 +1,6 @@
+dist
+src-tauri
+src/bindings
+node_modules
+package-lock.json
+PROMPT.md
