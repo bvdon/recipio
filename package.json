@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dmg": "rm -f ./*.dmg && tauri build --bundles dmg && cp src-tauri/target/release/bundle/dmg/*.dmg ."
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -25,3 +25,6 @@ dist-ssr
 
 # Owner brief (local only)
 PROMPT.md
+
+# Local installer builds (npm run dmg)
+*.dmg

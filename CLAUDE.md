@@ -20,6 +20,9 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 - No telemetry, no network calls beyond those in the brief.
 - Invoke external binaries with argument arrays, never a shell string. URLs/metadata are untrusted.
 - Never commit secrets or downloaded binaries.
+- **Owner preference:** after every phase (and whenever the app changes meaningfully), run
+  `npm run dmg` so a fresh `Recipio_<version>_aarch64.dmg` sits in the project root.
+  `*.dmg` is gitignored — never commit it.
 
 ## Current status
 
@@ -63,6 +66,7 @@ Phase-1 stopgaps to replace later:
 ## Commands
 
 - Dev: `npm run tauri dev`
+- macOS installer: `npm run dmg` (release build → copies the DMG to the project root, replacing the old one)
 - Rust tests (also regenerates `src/bindings/*.ts`): `cd src-tauri && cargo test`
 - Rust lint: `cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo fmt --check`
 - Frontend: `npx tsc --noEmit && npm run lint && npm run format:check` (`npm run format` to fix)
