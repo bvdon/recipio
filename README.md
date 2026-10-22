@@ -3,7 +3,7 @@
 A local-first desktop recipe app for macOS, Windows and Linux, built with Tauri v2,
 Rust and React.
 
-> **Status:** early development (Phase 1 of 7: foundation). See [`docs/PLAN.md`](docs/PLAN.md).
+> **Status:** early development (Phase 2 of 7: organize). See [`docs/PLAN.md`](docs/PLAN.md).
 
 ## Features (planned for v1)
 

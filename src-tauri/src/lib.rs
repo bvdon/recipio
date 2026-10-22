@@ -80,6 +80,11 @@ pub fn run() {
             commands::save_recipe,
             commands::delete_recipe,
             commands::stage_photo,
+            commands::list_labels,
+            commands::create_label,
+            commands::rename_label,
+            commands::delete_label,
+            commands::merge_labels,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

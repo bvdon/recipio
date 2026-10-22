@@ -7,6 +7,7 @@ import Layout from "./components/Layout";
 import Library from "./pages/Library";
 import RecipeView from "./pages/RecipeView";
 import RecipeEditor from "./pages/RecipeEditor";
+import Organize from "./pages/Organize";
 import "./styles.css";
 
 window.addEventListener("error", (e) => void logError(`ui: ${e.message}`));
@@ -29,6 +30,7 @@ const router = createHashRouter([
       { path: "recipes/new", element: <RecipeEditor /> },
       { path: "recipes/:id", element: <RecipeView /> },
       { path: "recipes/:id/edit", element: <RecipeEditor /> },
+      { path: "organize", element: <Organize /> },
     ],
   },
 ]);

@@ -28,8 +28,8 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 | Phase                   | State                                        |
 | ----------------------- | -------------------------------------------- |
-| 1 Foundation            | done, committed; **awaiting owner approval** |
-| 2 Organize              | not started                                  |
+| 1 Foundation            | done, approved                               |
+| 2 Organize              | done, committed; **awaiting owner approval** |
 | 3 Ingredients plus      | not started                                  |
 | 4 Video                 | not started                                  |
 | 5 Web import            | not started                                  |
@@ -42,21 +42,23 @@ support (already used for photos), library grid/list, view page, editor (keyboar
 ingredient rows, section headings, drag reorder, steps, rating, nutrition, sources),
 unsaved-changes guard, delete with confirmation (also deletes media files), log file.
 
+Phase 2 delivered: category/tag pickers in the editor (type-ahead, create on save),
+library sidebar filters (AND), FTS prefix search, sort (title/added/updated/rating +
+direction), `/organize` page (add, rename, delete, merge), clickable chips on the
+recipe page that open the filtered library.
+
 Phase-1 stopgaps to replace later:
 
 - Quantity input is parsed in TS (`parseQty` in `IngredientsEditor.tsx`: decimals and
   `2-3` only) and displayed as decimals (`formatQuantity` in `common.tsx`). Phase 3 moves
   parsing/fraction formatting to Rust.
-- Categories/tags are in the schema and read into `Recipe`, but there is no UI or save
-  path for them yet (Phase 2). Library sorts by `updated_at DESC` only.
 
 ## Environment / gotchas
 
 - Dev machine: macOS arm64, rustc 1.98, node 25, npm 11 (no pnpm — use npm).
-- **Linker gotcha on this Mac:** the Command Line Tools linker can't read the beta
-  macOS 27 SDK that `xcrun` picks by default ("tapi error: unknown architecture"). Prefix
-  Rust/Tauri commands with `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk`
-  (→ 26.5 SDK). Not a repo issue; don't put it in project config.
+- The old `SDKROOT=…` linker workaround is no longer needed (fixed by the owner's
+  system update, 2026-10-22). If "tapi error: unknown architecture" reappears, prefix
+  Rust commands with `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk`.
 - Screen capture is not permitted for Claude here; the owner tests the UI.
 - Git author is repo-local: `bvdon <43088+bvdon@users.noreply.github.com>`. `gh` is
   logged in as `bvdon`.
@@ -75,12 +77,12 @@ Phase-1 stopgaps to replace later:
 
 - `src-tauri/src/lib.rs` — setup (log plugin, DB open, media sweep), protocol registration, command list.
 - `src-tauri/src/commands.rs` — thin Tauri commands.
-- `src-tauri/src/db/` — `open` + migrations; `recipes.rs` repository (validate, upsert, delete, FTS reindex).
+- `src-tauri/src/db/` — `open` + migrations; `recipes.rs` (validate, upsert, delete, list/search/sort, FTS reindex); `labels.rs` (categories + tags via `LabelKind`: list, create, rename, delete, merge, link).
 - `src-tauri/src/media.rs` — media folder, photo staging, orphan sweep, `recipio-media://` handler + range parsing.
 - `src-tauri/src/models.rs` — shared types (ts-rs exported).
 - `src-tauri/src/error.rs` — `AppError` → `{ kind, message }`, logs detail on serialize.
 - `src/api.ts` — typed `invoke` wrappers, `mediaUrl()`, query keys.
-- `src/pages/` — `Library`, `RecipeView`, `RecipeEditor`. `src/components/` — editors, `SortableList`, common bits.
+- `src/pages/` — `Library`, `RecipeView`, `RecipeEditor`, `Organize`. `src/components/` — editors, `LabelPicker`, `SortableList`, common bits.
 
 ## Conventions
 
@@ -95,4 +97,11 @@ Phase-1 stopgaps to replace later:
 - Rust structs shared with the UI derive `ts_rs::TS`; generated types in `src/bindings/` are committed.
 - Errors: internal detail → log file; UI gets `{ kind, message }` with a plain-language message.
 - Ingredient section headings are rows with `is_heading = true`, text in `item`.
-- Hash routing (`createHashRouter`); routes: `/`, `/recipes/new`, `/recipes/:id`, `/recipes/:id/edit`.
+- Hash routing (`createHashRouter`); routes: `/`, `/recipes/new`, `/recipes/:id`, `/recipes/:id/edit`, `/organize`.
+- Library search/filters live in the URL (`?q=…&c=<category id>&t=<tag id>`, repeatable) so
+  Back restores them; view mode and sort are per-machine prefs in `localStorage`.
+- Categories and tags share one code path (`LabelKind`). Names are unique case-insensitively,
+  whitespace-collapsed, ≤ 60 chars. Unused labels are kept (count 0) until deleted on
+  `/organize`; the library sidebar hides them. Renaming/merging does not bump `updated_at`.
+- Search: each word becomes a quoted FTS5 prefix term (`"word"*`), ANDed — user input is
+  never passed to MATCH raw. Labels are not in the FTS index (filters cover them).

@@ -1,7 +1,12 @@
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
 
+use super::labels;
 use crate::error::{AppError, AppResult};
-use crate::models::{IngredientLine, Nutrition, Recipe, RecipeInput, RecipeSummary, VideoStatus};
+use crate::models::{
+    IngredientLine, LabelKind, Nutrition, Recipe, RecipeInput, RecipeQuery, RecipeSort,
+    RecipeSummary, VideoStatus,
+};
 
 /// Media files owned by a recipe, relative to the media folder.
 #[derive(Debug, Default, PartialEq)]
@@ -10,13 +15,43 @@ pub struct RecipeMedia {
     pub video_path: Option<String>,
 }
 
-pub fn list(conn: &Connection) -> AppResult<Vec<RecipeSummary>> {
-    let mut stmt = conn.prepare(
+/// Library listing: full-text search, category and tag filters (all ANDed), sorted.
+pub fn list(conn: &Connection, query: &RecipeQuery) -> AppResult<Vec<RecipeSummary>> {
+    let mut sql = String::from(
         "SELECT id, title, photo_path, rating, video_status, created_at, updated_at
-         FROM recipes ORDER BY updated_at DESC",
-    )?;
+         FROM recipes r WHERE 1",
+    );
+    let mut args: Vec<Value> = Vec::new();
+    if let Some(fts) = fts_query(&query.search) {
+        sql.push_str(" AND r.id IN (SELECT recipe_id FROM recipes_fts WHERE recipes_fts MATCH ?)");
+        args.push(fts.into());
+    }
+    for &id in &query.category_ids {
+        sql.push_str(
+            " AND EXISTS (SELECT 1 FROM recipe_categories
+                          WHERE recipe_id = r.id AND category_id = ?)",
+        );
+        args.push(id.into());
+    }
+    for &id in &query.tag_ids {
+        sql.push_str(
+            " AND EXISTS (SELECT 1 FROM recipe_tags WHERE recipe_id = r.id AND tag_id = ?)",
+        );
+        args.push(id.into());
+    }
+    let dir = if query.descending { "DESC" } else { "ASC" };
+    let order = match query.sort {
+        RecipeSort::Title => format!("r.title COLLATE NOCASE {dir}"),
+        RecipeSort::Created => format!("r.created_at {dir}"),
+        RecipeSort::Updated => format!("r.updated_at {dir}"),
+        RecipeSort::Rating => format!("r.rating IS NULL, r.rating {dir}"),
+    };
+    // Title, then id, as tie-breakers so the order is stable.
+    sql.push_str(&format!(" ORDER BY {order}, r.title COLLATE NOCASE, r.id"));
+
+    let mut stmt = conn.prepare(&sql)?;
     let mut summaries = stmt
-        .query_map([], |row| {
+        .query_map(params_from_iter(args), |row| {
             Ok(RecipeSummary {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -33,6 +68,18 @@ pub fn list(conn: &Connection) -> AppResult<Vec<RecipeSummary>> {
         s.categories = categories_of(conn, &s.id)?;
     }
     Ok(summaries)
+}
+
+/// Turns free text into a safe FTS5 query: each word becomes a quoted prefix term, and
+/// all terms must match. Returns `None` when there is nothing searchable.
+pub fn fts_query(search: &str) -> Option<String> {
+    let terms: Vec<String> = search
+        .split_whitespace()
+        .map(|w| w.replace('"', ""))
+        .filter(|w| w.chars().any(char::is_alphanumeric))
+        .map(|w| format!("\"{w}\"*"))
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" "))
 }
 
 pub fn get(conn: &Connection, id: &str) -> AppResult<Recipe> {
@@ -115,11 +162,13 @@ pub fn validate(input: &RecipeInput) -> AppResult<RecipeInput> {
         .collect();
     input.youtube_url = non_blank(input.youtube_url);
     input.source_url = non_blank(input.source_url);
+    input.categories = labels::clean_names(LabelKind::Category, &input.categories)?;
+    input.tags = labels::clean_names(LabelKind::Tag, &input.tags)?;
     Ok(input)
 }
 
-/// Inserts or updates a recipe (by id) together with its ingredients, steps and search
-/// index entry. `input` must already be validated. Video fields are left untouched.
+/// Inserts or updates a recipe (by id) together with its ingredients, steps, categories,
+/// tags and search index entry. `input` must already be validated. Video fields are left untouched.
 pub fn upsert(
     conn: &mut Connection,
     input: &RecipeInput,
@@ -192,6 +241,8 @@ pub fn upsert(
         }
     }
 
+    labels::set_for_recipe(&tx, LabelKind::Category, &input.id, &input.categories)?;
+    labels::set_for_recipe(&tx, LabelKind::Tag, &input.id, &input.tags)?;
     reindex(&tx, input)?;
     tx.commit()?;
     Ok(())
@@ -410,6 +461,8 @@ mod tests {
                 line(None, None, "salt"),
             ],
             steps: vec!["Mix".into(), "   ".into(), "Cook".into()],
+            categories: vec!["Breakfast".into()],
+            tags: vec![" quick ".into(), "Quick".into()],
         }
     }
 
@@ -434,6 +487,8 @@ mod tests {
         assert_eq!(r.youtube_url, None);
         assert_eq!(r.photo_path.as_deref(), Some("photos/x.jpg"));
         assert_eq!(r.nutrition.calories, Some(250.0));
+        assert_eq!(r.categories, vec!["Breakfast"]);
+        assert_eq!(r.tags, vec!["quick"]);
     }
 
     #[test]
@@ -498,5 +553,144 @@ mod tests {
         l.quantity_max = Some(2.0);
         let l = clean_line(l);
         assert_eq!((l.quantity, l.quantity_max), (Some(2.0), None));
+    }
+
+    fn query(search: &str) -> RecipeQuery {
+        RecipeQuery {
+            search: search.into(),
+            category_ids: vec![],
+            tag_ids: vec![],
+            sort: RecipeSort::Title,
+            descending: false,
+        }
+    }
+
+    fn titles(conn: &Connection, q: &RecipeQuery) -> Vec<String> {
+        list(conn, q)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.title)
+            .collect()
+    }
+
+    /// Saves recipes "Apple pie", "banana bread", "Carrot soup" with distinct dates,
+    /// ratings and labels.
+    fn library(conn: &mut Connection) {
+        let mk = |n: u8, title: &str, rating: Option<u8>, cats: &[&str], tags: &[&str]| {
+            let mut r = sample(&format!("6f1c1f0e-2b9a-4d4e-9a53-0d3f4b7d8c1{n}"));
+            r.title = title.into();
+            r.rating = rating;
+            r.notes = String::new();
+            r.categories = cats.iter().map(|s| s.to_string()).collect();
+            r.tags = tags.iter().map(|s| s.to_string()).collect();
+            r
+        };
+        let recipes = [
+            mk(1, "Apple pie", Some(3), &["Dessert"], &["baking"]),
+            mk(
+                2,
+                "banana bread",
+                None,
+                &["Dessert", "Breakfast"],
+                &["baking", "quick"],
+            ),
+            mk(3, "Carrot soup", Some(5), &["Dinner"], &["quick"]),
+        ];
+        for (i, r) in recipes.iter().enumerate() {
+            save(conn, r, &format!("2026-01-0{}T00:00:00Z", i + 1));
+        }
+        // Make "updated" order differ from "created" order.
+        let mut apple = recipes[0].clone();
+        apple.description = "Updated".into();
+        save(conn, &apple, "2026-03-01T00:00:00Z");
+    }
+
+    fn label_id(conn: &Connection, kind: LabelKind, name: &str) -> i64 {
+        labels::list(conn, kind)
+            .unwrap()
+            .into_iter()
+            .find(|l| l.name == name)
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn list_sorts_by_each_key() {
+        let mut conn = open_in_memory();
+        library(&mut conn);
+        let mut q = query("");
+        assert_eq!(
+            titles(&conn, &q),
+            ["Apple pie", "banana bread", "Carrot soup"]
+        );
+        q.descending = true;
+        assert_eq!(
+            titles(&conn, &q),
+            ["Carrot soup", "banana bread", "Apple pie"]
+        );
+        q.sort = RecipeSort::Created;
+        assert_eq!(
+            titles(&conn, &q),
+            ["Carrot soup", "banana bread", "Apple pie"]
+        );
+        q.sort = RecipeSort::Updated;
+        assert_eq!(
+            titles(&conn, &q),
+            ["Apple pie", "Carrot soup", "banana bread"]
+        );
+        q.sort = RecipeSort::Rating;
+        assert_eq!(
+            titles(&conn, &q),
+            ["Carrot soup", "Apple pie", "banana bread"]
+        );
+        q.descending = false;
+        // Unrated stays last in both directions.
+        assert_eq!(
+            titles(&conn, &q),
+            ["Apple pie", "Carrot soup", "banana bread"]
+        );
+    }
+
+    #[test]
+    fn list_filters_combine_with_and() {
+        let mut conn = open_in_memory();
+        library(&mut conn);
+        let dessert = label_id(&conn, LabelKind::Category, "Dessert");
+        let quick = label_id(&conn, LabelKind::Tag, "quick");
+        let baking = label_id(&conn, LabelKind::Tag, "baking");
+        let mut q = query("");
+        q.category_ids = vec![dessert];
+        assert_eq!(titles(&conn, &q), ["Apple pie", "banana bread"]);
+        q.tag_ids = vec![quick];
+        assert_eq!(titles(&conn, &q), ["banana bread"]);
+        q.tag_ids = vec![quick, baking];
+        assert_eq!(titles(&conn, &q), ["banana bread"]);
+        q.search = "carrot".into();
+        assert!(titles(&conn, &q).is_empty());
+    }
+
+    #[test]
+    fn search_matches_prefixes_across_fields() {
+        let mut conn = open_in_memory();
+        library(&mut conn);
+        // Every sample recipe has "flour" as an ingredient and "Mix" as a step.
+        assert_eq!(titles(&conn, &query("flo")).len(), 3);
+        assert_eq!(titles(&conn, &query("BAN")), ["banana bread"]);
+        assert_eq!(titles(&conn, &query("updat mix")), ["Apple pie"]);
+        assert!(titles(&conn, &query("apple carrot")).is_empty());
+        // Punctuation and FTS syntax are treated as plain text, not errors.
+        assert_eq!(titles(&conn, &query("\"soup")), ["Carrot soup"]);
+        assert_eq!(titles(&conn, &query("soup OR NOT(")), Vec::<String>::new());
+        assert_eq!(titles(&conn, &query(" - * ")).len(), 3);
+    }
+
+    #[test]
+    fn fts_query_quotes_words() {
+        assert_eq!(fts_query("  "), None);
+        assert_eq!(fts_query("-- *"), None);
+        assert_eq!(
+            fts_query("choc \"chip\" crème-brûlée").as_deref(),
+            Some("\"choc\"* \"chip\"* \"crème-brûlée\"*")
+        );
     }
 }

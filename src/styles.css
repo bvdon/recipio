@@ -78,6 +78,9 @@ a {
 .muted {
   color: var(--muted);
 }
+.small {
+  font-size: 0.8rem;
+}
 
 /* ---------- Layout ---------- */
 
@@ -175,6 +178,14 @@ button.link {
 .button.ghost:hover {
   background: var(--surface-2);
 }
+.button.small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.82rem;
+}
+.button.icon {
+  padding: 0.45rem;
+  color: var(--muted);
+}
 .button.danger {
   color: var(--danger);
 }
@@ -207,6 +218,10 @@ button.link:hover {
   color: var(--danger);
   background: var(--danger-soft);
 }
+.icon-button.neutral:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
 
 .segmented {
   display: inline-flex;
@@ -229,7 +244,8 @@ button.link:hover {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   padding: 0.45rem 0.6rem;
   font: inherit;
@@ -240,6 +256,14 @@ textarea {
 }
 textarea {
   resize: vertical;
+}
+select {
+  width: auto;
+  cursor: pointer;
+}
+input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--accent);
 }
 input.invalid {
   border-color: var(--danger);
@@ -300,6 +324,101 @@ label > textarea {
   color: var(--muted);
   background: var(--surface-2);
 }
+.chip.removable,
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font: inherit;
+  font-size: 0.78rem;
+  border: none;
+  cursor: pointer;
+}
+.chip.removable:hover,
+.link-chip:hover {
+  filter: brightness(0.95);
+  text-decoration: underline;
+}
+.chip-remove {
+  display: inline-grid;
+  place-items: center;
+  margin: 0 -0.25rem 0 0.2rem;
+  padding: 1px;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.chip-remove:hover {
+  background: rgb(0 0 0 / 10%);
+}
+
+/* ---------- Label picker (combobox) ---------- */
+
+.label-picker {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2.35rem;
+  padding: 0.25rem 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: text;
+}
+.label-picker:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.label-picker .chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+.label-picker input {
+  flex: 1 1 120px;
+  width: auto;
+  min-width: 80px;
+  padding: 0.15rem 0.2rem;
+  font-size: 1rem;
+  font-weight: 400;
+  border: none;
+  background: transparent;
+}
+.label-picker input:focus-visible {
+  outline: none;
+}
+.label-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.label-options li {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--text);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.label-options li.active {
+  background: var(--accent-soft);
+}
 
 .stars {
   display: inline-flex;
@@ -336,6 +455,101 @@ label > textarea {
 }
 
 /* ---------- Library ---------- */
+
+.library {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 1.75rem;
+  align-items: start;
+}
+.sidebar {
+  position: sticky;
+  top: 4.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-height: calc(100vh - 6rem);
+  overflow-y: auto;
+}
+.filter-group h2 {
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.filter-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.filter-group button {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+  font-size: 0.92rem;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.filter-group button:hover {
+  background: var(--surface-2);
+}
+.filter-group button.active {
+  color: var(--accent);
+  font-weight: 600;
+  background: var(--accent-soft);
+}
+.filter-group .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.count {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+h1 .count {
+  margin-left: 0.3rem;
+  font-size: 1rem;
+}
+.library-main .toolbar {
+  flex-wrap: wrap;
+}
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.search svg {
+  position: absolute;
+  left: 0.6rem;
+  color: var(--muted);
+  pointer-events: none;
+}
+.search input {
+  width: 220px;
+  padding-left: 2rem;
+}
+.sort {
+  display: flex;
+  gap: 0.3rem;
+}
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: -0.5rem 0 1rem;
+  font-size: 0.85rem;
+}
 
 .empty {
   padding: 4rem 1rem;
@@ -416,6 +630,65 @@ label > textarea {
 .recipe-list .recipe-card:hover {
   transform: none;
   background: var(--surface-2);
+}
+
+/* ---------- Organize ---------- */
+
+.organize-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2rem;
+  margin-top: 1.25rem;
+}
+.label-manager {
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.add-label {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.merge-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.75rem;
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+.label-rows {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+.label-rows li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.4rem;
+  padding: 0.1rem 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+.label-rows li:last-child {
+  border-bottom: none;
+}
+.label-rows li.selected {
+  background: var(--accent-soft);
+}
+.label-rows .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.label-rows .rename-input {
+  grid-column: 2 / 4;
+  padding: 0.25rem 0.5rem;
 }
 
 /* ---------- Recipe view ---------- */
@@ -625,7 +898,13 @@ label > textarea {
 @media (max-width: 760px) {
   .recipe-header,
   .recipe-body,
-  .editor-top {
+  .editor-top,
+  .library,
+  .organize-grid {
     grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: static;
+    max-height: none;
   }
 }

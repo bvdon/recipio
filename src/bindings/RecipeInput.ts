@@ -6,4 +6,8 @@ import type { PhotoChange } from "./PhotoChange";
 /**
  * Payload for creating or updating a recipe. Upserts by `id`.
  */
-export type RecipeInput = { id: string, title: string, description: string, servings: number | null, prep_minutes: number | null, cook_minutes: number | null, photo: PhotoChange, notes: string, rating: number | null, youtube_url: string | null, source_url: string | null, nutrition: Nutrition, ingredients: Array<IngredientLine>, steps: Array<string>, };
+export type RecipeInput = { id: string, title: string, description: string, servings: number | null, prep_minutes: number | null, cook_minutes: number | null, photo: PhotoChange, notes: string, rating: number | null, youtube_url: string | null, source_url: string | null, nutrition: Nutrition, ingredients: Array<IngredientLine>, steps: Array<string>, 
+/**
+ * Category and tag names; unknown names are created on save.
+ */
+categories: Array<string>, tags: Array<string>, };

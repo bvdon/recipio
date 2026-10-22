@@ -5,9 +5,11 @@ use std::path::Path;
 use tauri::State;
 
 use crate::AppState;
-use crate::db::recipes;
+use crate::db::{labels, recipes};
 use crate::error::{AppError, AppResult};
-use crate::models::{PhotoChange, Recipe, RecipeInput, RecipeSummary};
+use crate::models::{
+    Label, LabelKind, PhotoChange, Recipe, RecipeInput, RecipeQuery, RecipeSummary,
+};
 
 #[tauri::command]
 pub fn new_recipe_id() -> String {
@@ -15,8 +17,11 @@ pub fn new_recipe_id() -> String {
 }
 
 #[tauri::command]
-pub async fn list_recipes(state: State<'_, AppState>) -> AppResult<Vec<RecipeSummary>> {
-    recipes::list(&state.db())
+pub async fn list_recipes(
+    state: State<'_, AppState>,
+    query: RecipeQuery,
+) -> AppResult<Vec<RecipeSummary>> {
+    recipes::list(&state.db(), &query)
 }
 
 #[tauri::command]
@@ -58,4 +63,44 @@ pub async fn delete_recipe(state: State<'_, AppState>, id: String) -> AppResult<
 #[tauri::command]
 pub async fn stage_photo(state: State<'_, AppState>, path: String) -> AppResult<String> {
     state.media.stage_photo(Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn list_labels(state: State<'_, AppState>, kind: LabelKind) -> AppResult<Vec<Label>> {
+    labels::list(&state.db(), kind)
+}
+
+#[tauri::command]
+pub async fn create_label(
+    state: State<'_, AppState>,
+    kind: LabelKind,
+    name: String,
+) -> AppResult<i64> {
+    labels::create(&state.db(), kind, &name)
+}
+
+#[tauri::command]
+pub async fn rename_label(
+    state: State<'_, AppState>,
+    kind: LabelKind,
+    id: i64,
+    name: String,
+) -> AppResult<()> {
+    labels::rename(&state.db(), kind, id, &name)
+}
+
+/// Removes the label from all recipes; the recipes are kept. The UI confirms first.
+#[tauri::command]
+pub async fn delete_label(state: State<'_, AppState>, kind: LabelKind, id: i64) -> AppResult<()> {
+    labels::delete(&state.db(), kind, id)
+}
+
+#[tauri::command]
+pub async fn merge_labels(
+    state: State<'_, AppState>,
+    kind: LabelKind,
+    sources: Vec<i64>,
+    target: i64,
+) -> AppResult<()> {
+    labels::merge(&mut state.db(), kind, &sources, target)
 }

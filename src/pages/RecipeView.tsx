@@ -4,6 +4,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowLeft, Clock, ExternalLink, Pencil, Trash2, Users } from "lucide-react";
 import { api, errorMessage, mediaUrl, queryKeys } from "../api";
+import type { Label } from "../bindings/Label";
 import type { Recipe } from "../bindings/Recipe";
 import { ErrorBanner, formatMinutes, formatQuantity, Stars } from "../components/common";
 
@@ -12,6 +13,14 @@ export default function RecipeView() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const recipe = useQuery({ queryKey: queryKeys.recipe(id), queryFn: () => api.getRecipe(id) });
+  const categories = useQuery({
+    queryKey: queryKeys.labels("category"),
+    queryFn: () => api.listLabels("category"),
+  });
+  const tags = useQuery({
+    queryKey: queryKeys.labels("tag"),
+    queryFn: () => api.listLabels("tag"),
+  });
 
   const remove = useMutation({
     mutationFn: () => api.deleteRecipe(id),
@@ -82,14 +91,10 @@ export default function RecipeView() {
           {r.categories.length + r.tags.length > 0 && (
             <div className="chips">
               {r.categories.map((c) => (
-                <span key={c} className="chip">
-                  {c}
-                </span>
+                <LabelChip key={c} name={c} labels={categories.data} param="c" />
               ))}
               {r.tags.map((t) => (
-                <span key={t} className="chip tag">
-                  #{t}
-                </span>
+                <LabelChip key={t} name={t} labels={tags.data} param="t" />
               ))}
             </div>
           )}
@@ -159,6 +164,31 @@ export default function RecipeView() {
         </section>
       )}
     </article>
+  );
+}
+
+/** A category or tag chip that opens the library filtered by it. */
+function LabelChip({
+  name,
+  labels,
+  param,
+}: {
+  name: string;
+  labels: Label[] | undefined;
+  param: "c" | "t";
+}) {
+  const className = param === "t" ? "chip tag" : "chip";
+  const text = param === "t" ? `#${name}` : name;
+  const label = labels?.find((l) => l.name === name);
+  if (!label) return <span className={className}>{text}</span>;
+  return (
+    <Link
+      to={`/?${param}=${label.id}`}
+      className={`${className} link-chip`}
+      title={`Show all “${name}” recipes`}
+    >
+      {text}
+    </Link>
   );
 }
 

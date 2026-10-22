@@ -8,6 +8,7 @@ import type { Recipe } from "../bindings/Recipe";
 import type { RecipeInput } from "../bindings/RecipeInput";
 import type { PhotoChange } from "../bindings/PhotoChange";
 import { ErrorBanner, PhotoPlaceholder, StarPicker } from "../components/common";
+import LabelPicker from "../components/LabelPicker";
 import IngredientsEditor, {
   blankRow,
   type IngredientRow,
@@ -31,6 +32,8 @@ type Form = {
   fat: string;
   ingredients: IngredientRow[];
   steps: StepRow[];
+  categories: string[];
+  tags: string[];
   photo: PhotoChange;
 };
 
@@ -67,6 +70,8 @@ function toForm(r: Recipe | null): Form {
         }))
       : [blankRow()],
     steps: r?.steps.length ? r.steps.map((s) => blankStep(s)) : [blankStep()],
+    categories: r?.categories ?? [],
+    tags: r?.tags ?? [],
     photo: { action: "keep" },
   };
 }
@@ -129,6 +134,8 @@ function toInput(id: string, f: Form): RecipeInput | string[] {
     },
     ingredients,
     steps: f.steps.map((s) => s.text),
+    categories: f.categories,
+    tags: f.tags,
   };
   return problems.length ? problems : input;
 }
@@ -179,6 +186,7 @@ function EditorForm({ id, recipe }: { id: string; recipe: Recipe | null }) {
       saved.current = true;
       queryClient.setQueryData(queryKeys.recipe(r.id), r);
       void queryClient.invalidateQueries({ queryKey: queryKeys.recipes });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.allLabels });
       navigate(`/recipes/${r.id}`, { replace: recipe === null });
     },
   });
@@ -330,6 +338,13 @@ function EditorForm({ id, recipe }: { id: string; recipe: Recipe | null }) {
               <StarPicker value={form.rating} onChange={(v) => set("rating", v)} />
             </div>
           </div>
+          <LabelPicker
+            kind="category"
+            label="Categories"
+            value={form.categories}
+            onChange={(v) => set("categories", v)}
+          />
+          <LabelPicker kind="tag" label="Tags" value={form.tags} onChange={(v) => set("tags", v)} />
         </div>
       </div>
 

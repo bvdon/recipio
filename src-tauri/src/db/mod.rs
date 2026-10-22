@@ -1,3 +1,4 @@
+pub mod labels;
 pub mod recipes;
 
 use std::path::Path;

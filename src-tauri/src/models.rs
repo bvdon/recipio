@@ -120,4 +120,50 @@ pub struct RecipeInput {
     pub nutrition: Nutrition,
     pub ingredients: Vec<IngredientLine>,
     pub steps: Vec<String>,
+    /// Category and tag names; unknown names are created on save.
+    pub categories: Vec<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum LabelKind {
+    Category,
+    Tag,
+}
+
+/// A category or tag, with the number of recipes using it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct Label {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub name: String,
+    pub recipe_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RecipeSort {
+    Title,
+    Created,
+    Updated,
+    Rating,
+}
+
+/// Library search, filters and sort. All filters combine with AND.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(export)]
+pub struct RecipeQuery {
+    /// Free text, matched against the full-text index (prefix match per word).
+    pub search: String,
+    #[ts(type = "number[]")]
+    pub category_ids: Vec<i64>,
+    #[ts(type = "number[]")]
+    pub tag_ids: Vec<i64>,
+    pub sort: RecipeSort,
+    /// Recipes without a rating always sort last.
+    pub descending: bool,
 }
