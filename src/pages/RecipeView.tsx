@@ -16,9 +16,11 @@ export default function RecipeView() {
   const remove = useMutation({
     mutationFn: () => api.deleteRecipe(id),
     onSuccess: () => {
+      // Leave the page first: removing the query while it is still observed triggers a
+      // refetch of the now-deleted recipe.
+      navigate("/");
       queryClient.removeQueries({ queryKey: queryKeys.recipe(id) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.recipes });
-      navigate("/");
     },
   });
 
