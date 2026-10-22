@@ -3,6 +3,7 @@ mod db;
 mod error;
 mod media;
 mod models;
+mod quantity;
 
 use std::collections::HashSet;
 use std::sync::{Mutex, MutexGuard};
@@ -85,6 +86,7 @@ pub fn run() {
             commands::rename_label,
             commands::delete_label,
             commands::merge_labels,
+            commands::check_quantity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

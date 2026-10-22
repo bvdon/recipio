@@ -8,4 +8,8 @@ export type IngredientLine = { is_heading: boolean, quantity: number | null,
 /**
  * Upper bound for ranges such as "2-3".
  */
-quantity_max: number | null, unit: string | null, item: string, prep_note: string | null, };
+quantity_max: number | null, unit: string | null, item: string, prep_note: string | null, 
+/**
+ * `quantity`/`quantity_max` formatted for display, e.g. "1½" or "2–3"; empty if none.
+ */
+quantity_text: string, };

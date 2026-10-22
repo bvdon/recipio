@@ -4,9 +4,10 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_f
 use super::labels;
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    IngredientLine, LabelKind, Nutrition, Recipe, RecipeInput, RecipeQuery, RecipeSort,
-    RecipeSummary, VideoStatus,
+    IngredientInput, IngredientLine, LabelKind, Nutrition, Recipe, RecipeInput, RecipeQuery,
+    RecipeSort, RecipeSummary, VideoStatus,
 };
+use crate::quantity;
 
 /// Media files owned by a recipe, relative to the media folder.
 #[derive(Debug, Default, PartialEq)]
@@ -116,8 +117,16 @@ pub fn media_of(conn: &Connection, id: &str) -> AppResult<Option<RecipeMedia>> {
         .optional()?)
 }
 
-/// Checks the input and returns a cleaned copy (trimmed text, blank lines removed).
-pub fn validate(input: &RecipeInput) -> AppResult<RecipeInput> {
+/// A recipe that passed validation: cleaned input plus parsed ingredient lines.
+#[derive(Debug, Clone)]
+pub struct ValidRecipe {
+    pub input: RecipeInput,
+    pub ingredients: Vec<IngredientLine>,
+}
+
+/// Checks the input and returns a cleaned copy (trimmed text, blank lines removed,
+/// quantities parsed).
+pub fn validate(input: &RecipeInput) -> AppResult<ValidRecipe> {
     let mut input = input.clone();
     if uuid::Uuid::parse_str(&input.id).is_err() {
         return Err(AppError::Validation("Invalid recipe id.".into()));
@@ -136,22 +145,12 @@ pub fn validate(input: &RecipeInput) -> AppResult<RecipeInput> {
     if input.servings == Some(0) {
         return Err(AppError::Validation("Servings must be at least 1.".into()));
     }
-    for q in input
+    let ingredients = input
         .ingredients
         .iter()
-        .flat_map(|l| [l.quantity, l.quantity_max])
-        .flatten()
-    {
-        if !q.is_finite() || q < 0.0 {
-            return Err(AppError::Validation(
-                "Ingredient quantities must be positive numbers.".into(),
-            ));
-        }
-    }
-    input.ingredients = input
-        .ingredients
-        .into_iter()
         .map(clean_line)
+        .collect::<AppResult<Vec<_>>>()?
+        .into_iter()
         .filter(|l| !l.item.is_empty())
         .collect();
     input.steps = input
@@ -164,17 +163,18 @@ pub fn validate(input: &RecipeInput) -> AppResult<RecipeInput> {
     input.source_url = non_blank(input.source_url);
     input.categories = labels::clean_names(LabelKind::Category, &input.categories)?;
     input.tags = labels::clean_names(LabelKind::Tag, &input.tags)?;
-    Ok(input)
+    Ok(ValidRecipe { input, ingredients })
 }
 
 /// Inserts or updates a recipe (by id) together with its ingredients, steps, categories,
 /// tags and search index entry. `input` must already be validated. Video fields are left untouched.
 pub fn upsert(
     conn: &mut Connection,
-    input: &RecipeInput,
+    recipe: &ValidRecipe,
     photo_path: Option<&str>,
     now: &str,
 ) -> AppResult<()> {
+    let input = &recipe.input;
     let tx = conn.transaction()?;
     let n = &input.nutrition;
     tx.execute(
@@ -218,7 +218,7 @@ pub fn upsert(
                 (recipe_id, position, is_heading, quantity, quantity_max, unit, item, prep_note)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )?;
-        for (i, l) in input.ingredients.iter().enumerate() {
+        for (i, l) in recipe.ingredients.iter().enumerate() {
             stmt.execute(params![
                 input.id,
                 i as i64,
@@ -243,7 +243,7 @@ pub fn upsert(
 
     labels::set_for_recipe(&tx, LabelKind::Category, &input.id, &input.categories)?;
     labels::set_for_recipe(&tx, LabelKind::Tag, &input.id, &input.tags)?;
-    reindex(&tx, input)?;
+    reindex(&tx, recipe)?;
     tx.commit()?;
     Ok(())
 }
@@ -272,8 +272,9 @@ pub fn all_media_paths(conn: &Connection) -> AppResult<Vec<String>> {
     Ok(paths)
 }
 
-fn reindex(tx: &Transaction, input: &RecipeInput) -> AppResult<()> {
-    let ingredients = input
+fn reindex(tx: &Transaction, recipe: &ValidRecipe) -> AppResult<()> {
+    let input = &recipe.input;
+    let ingredients = recipe
         .ingredients
         .iter()
         .map(|l| {
@@ -338,13 +339,15 @@ fn ingredients_of(conn: &Connection, id: &str) -> AppResult<Vec<IngredientLine>>
     )?;
     let lines = stmt
         .query_map([id], |row| {
+            let (quantity, quantity_max) = (row.get(1)?, row.get(2)?);
             Ok(IngredientLine {
                 is_heading: row.get(0)?,
-                quantity: row.get(1)?,
-                quantity_max: row.get(2)?,
+                quantity,
+                quantity_max,
                 unit: row.get(3)?,
                 item: row.get(4)?,
                 prep_note: row.get(5)?,
+                quantity_text: quantity::format(quantity, quantity_max),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -385,26 +388,36 @@ fn names_of(conn: &Connection, sql: &str, id: &str) -> AppResult<Vec<String>> {
     Ok(names)
 }
 
-fn clean_line(mut l: IngredientLine) -> IngredientLine {
-    l.item = l.item.trim().to_string();
-    l.unit = non_blank(l.unit);
-    l.prep_note = non_blank(l.prep_note);
+/// Trims text and parses the quantity. Headings keep only their text.
+fn clean_line(l: &IngredientInput) -> AppResult<IngredientLine> {
+    let item = l.item.trim().to_string();
     if l.is_heading {
-        l.quantity = None;
-        l.quantity_max = None;
-        l.unit = None;
-        l.prep_note = None;
+        return Ok(IngredientLine {
+            is_heading: true,
+            quantity: None,
+            quantity_max: None,
+            unit: None,
+            item,
+            prep_note: None,
+            quantity_text: String::new(),
+        });
     }
-    // A max without a min, or a max not above the min, is not a range.
-    match (l.quantity, l.quantity_max) {
-        (None, Some(max)) => {
-            l.quantity = Some(max);
-            l.quantity_max = None;
-        }
-        (Some(min), Some(max)) if max <= min => l.quantity_max = None,
-        _ => {}
-    }
-    l
+    let q = quantity::parse(&l.quantity).map_err(|()| {
+        AppError::Validation(format!(
+            "“{}” isn't a quantity Recipio understands. Try 2, 1.5, 1/2, 1 1/2 or 2-3.",
+            l.quantity.trim()
+        ))
+    })?;
+    let (quantity, quantity_max) = (q.map(|q| q.min), q.and_then(|q| q.max));
+    Ok(IngredientLine {
+        is_heading: false,
+        quantity,
+        quantity_max,
+        unit: non_blank(l.unit.clone()),
+        item,
+        prep_note: non_blank(l.prep_note.clone()),
+        quantity_text: quantity::format(quantity, quantity_max),
+    })
 }
 
 fn non_blank(s: Option<String>) -> Option<String> {
@@ -417,11 +430,10 @@ mod tests {
     use crate::db::open_in_memory;
     use crate::models::PhotoChange;
 
-    fn line(q: Option<f64>, unit: Option<&str>, item: &str) -> IngredientLine {
-        IngredientLine {
+    fn line(q: &str, unit: Option<&str>, item: &str) -> IngredientInput {
+        IngredientInput {
             is_heading: false,
-            quantity: q,
-            quantity_max: None,
+            quantity: q.into(),
             unit: unit.map(Into::into),
             item: item.into(),
             prep_note: None,
@@ -448,17 +460,16 @@ mod tests {
                 fat_g: None,
             },
             ingredients: vec![
-                IngredientLine {
+                IngredientInput {
                     is_heading: true,
-                    quantity: Some(1.0),
-                    quantity_max: None,
+                    quantity: "1".into(),
                     unit: None,
                     item: "Batter".into(),
                     prep_note: None,
                 },
-                line(Some(1.5), Some("cups"), "flour"),
-                line(None, None, "  "),
-                line(None, None, "salt"),
+                line("1 1/2", Some("cups"), "flour"),
+                line("", None, "  "),
+                line("", None, "salt"),
             ],
             steps: vec!["Mix".into(), "   ".into(), "Cook".into()],
             categories: vec!["Breakfast".into()],
@@ -483,6 +494,8 @@ mod tests {
         assert!(r.ingredients[0].is_heading);
         assert_eq!(r.ingredients[0].quantity, None);
         assert_eq!(r.ingredients[1].quantity, Some(1.5));
+        assert_eq!(r.ingredients[1].quantity_text, "1½");
+        assert_eq!(r.ingredients[2].quantity_text, "");
         assert_eq!(r.steps, vec!["Mix", "Cook"]);
         assert_eq!(r.youtube_url, None);
         assert_eq!(r.photo_path.as_deref(), Some("photos/x.jpg"));
@@ -496,7 +509,7 @@ mod tests {
         let mut conn = open_in_memory();
         save(&mut conn, &sample(ID), "2026-01-01T00:00:00Z");
         let mut changed = sample(ID);
-        changed.ingredients = vec![line(Some(2.0), None, "eggs")];
+        changed.ingredients = vec![line("2", None, "eggs")];
         changed.steps = vec!["Whisk".into()];
         save(&mut conn, &changed, "2026-02-01T00:00:00Z");
         let r = get(&conn, ID).unwrap();
@@ -540,19 +553,20 @@ mod tests {
         bad.title = "x".into();
         assert!(validate(&bad).is_err());
         let mut bad = sample(ID);
-        bad.ingredients = vec![line(Some(-1.0), None, "x")];
+        bad.ingredients = vec![line("-1", None, "x")];
         assert!(validate(&bad).is_err());
+        let mut bad = sample(ID);
+        bad.ingredients = vec![line("a pinch", None, "salt")];
+        assert!(matches!(validate(&bad), Err(AppError::Validation(m)) if m.contains("a pinch")));
     }
 
     #[test]
-    fn ranges_are_normalized() {
-        let mut l = line(Some(3.0), None, "eggs");
-        l.quantity_max = Some(2.0);
-        assert_eq!(clean_line(l).quantity_max, None);
-        let mut l = line(None, None, "eggs");
-        l.quantity_max = Some(2.0);
-        let l = clean_line(l);
-        assert_eq!((l.quantity, l.quantity_max), (Some(2.0), None));
+    fn quantities_are_parsed() {
+        let l = clean_line(&line(" 2 - 3 ", None, "eggs")).unwrap();
+        assert_eq!((l.quantity, l.quantity_max), (Some(2.0), Some(3.0)));
+        assert_eq!(l.quantity_text, "2–3");
+        let l = clean_line(&line("¾", Some(" cup "), "milk")).unwrap();
+        assert_eq!((l.quantity, l.unit.as_deref()), (Some(0.75), Some("cup")));
     }
 
     fn query(search: &str) -> RecipeQuery {

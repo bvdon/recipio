@@ -26,15 +26,15 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 ## Current status
 
-| Phase                   | State                                        |
-| ----------------------- | -------------------------------------------- |
-| 1 Foundation            | done, approved                               |
-| 2 Organize              | done, committed; **awaiting owner approval** |
-| 3 Ingredients plus      | not started                                  |
-| 4 Video                 | not started                                  |
-| 5 Web import            | not started                                  |
-| 6 Cooking mode + backup | not started                                  |
-| 7 Packaging             | not started                                  |
+| Phase                   | State                                    |
+| ----------------------- | ---------------------------------------- |
+| 1 Foundation            | done, approved                           |
+| 2 Organize              | done, approved                           |
+| 3 Ingredients plus      | fractions done; paste-to-parse remaining |
+| 4 Video                 | not started                              |
+| 5 Web import            | not started                              |
+| 6 Cooking mode + backup | not started                              |
+| 7 Packaging             | not started                              |
 
 Phase 1 delivered: scaffold, migration 0001 (full schema incl. categories/tags/FTS),
 recipe CRUD commands, photo staging/commit, `recipio-media://` protocol with Range
@@ -47,11 +47,10 @@ library sidebar filters (AND), FTS prefix search, sort (title/added/updated/rati
 direction), `/organize` page (add, rename, delete, merge), clickable chips on the
 recipe page that open the filtered library.
 
-Phase-1 stopgaps to replace later:
-
-- Quantity input is parsed in TS (`parseQty` in `IngredientsEditor.tsx`: decimals and
-  `2-3` only) and displayed as decimals (`formatQuantity` in `common.tsx`). Phase 3 moves
-  parsing/fraction formatting to Rust.
+Phase 3 so far: quantities are typed as text and parsed in Rust (`quantity.rs`:
+fractions, mixed numbers, unicode ½, decimals, ranges), displayed as friendly fractions.
+**Scaling was dropped by the owner** (PLAN.md Q10) — don't build it. Nutrition (also in
+the brief's Phase 3) already shipped in Phase 1. Remaining: paste-to-parse ingredients.
 
 ## Environment / gotchas
 
@@ -79,6 +78,7 @@ Phase-1 stopgaps to replace later:
 - `src-tauri/src/commands.rs` — thin Tauri commands.
 - `src-tauri/src/db/` — `open` + migrations; `recipes.rs` (validate, upsert, delete, list/search/sort, FTS reindex); `labels.rs` (categories + tags via `LabelKind`: list, create, rename, delete, merge, link).
 - `src-tauri/src/media.rs` — media folder, photo staging, orphan sweep, `recipio-media://` handler + range parsing.
+- `src-tauri/src/quantity.rs` — quantity parse (`"1 1/2"`, `"¾"`, `"2-3"`) and fraction formatting.
 - `src-tauri/src/models.rs` — shared types (ts-rs exported).
 - `src-tauri/src/error.rs` — `AppError` → `{ kind, message }`, logs detail on serialize.
 - `src/api.ts` — typed `invoke` wrappers, `mediaUrl()`, query keys.
@@ -97,6 +97,10 @@ Phase-1 stopgaps to replace later:
 - Rust structs shared with the UI derive `ts_rs::TS`; generated types in `src/bindings/` are committed.
 - Errors: internal detail → log file; UI gets `{ kind, message }` with a plain-language message.
 - Ingredient section headings are rows with `is_heading = true`, text in `item`.
+- Quantities: editor sends raw text (`IngredientInput.quantity`); `recipes::validate` parses
+  into `quantity`/`quantity_max` (REAL) and returns `ValidRecipe`. Output lines carry
+  Rust-formatted `quantity_text` — the UI never formats numbers itself. Live check uses
+  `check_quantity` (returns bool, so bad keystrokes don't log errors).
 - Hash routing (`createHashRouter`); routes: `/`, `/recipes/new`, `/recipes/:id`, `/recipes/:id/edit`, `/organize`.
 - Library search/filters live in the URL (`?q=…&c=<category id>&t=<tag id>`, repeatable) so
   Back restores them; view mode and sort are per-machine prefs in `localStorage`.

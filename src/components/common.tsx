@@ -53,13 +53,6 @@ export function StarPicker({
   );
 }
 
-/** Formats a quantity (or range) for display. Friendly fractions arrive in Phase 3. */
-export function formatQuantity(q: number | null, max: number | null): string {
-  if (q === null) return "";
-  const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
-  return max !== null ? `${fmt(q)}–${fmt(max)}` : fmt(q);
-}
-
 export function formatMinutes(m: number | null): string | null {
   if (m === null) return null;
   const h = Math.floor(m / 60);

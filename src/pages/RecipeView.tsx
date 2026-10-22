@@ -6,7 +6,7 @@ import { ArrowLeft, Clock, ExternalLink, Pencil, Trash2, Users } from "lucide-re
 import { api, errorMessage, mediaUrl, queryKeys } from "../api";
 import type { Label } from "../bindings/Label";
 import type { Recipe } from "../bindings/Recipe";
-import { ErrorBanner, formatMinutes, formatQuantity, Stars } from "../components/common";
+import { ErrorBanner, formatMinutes, Stars } from "../components/common";
 
 export default function RecipeView() {
   const { id = "" } = useParams();
@@ -113,9 +113,7 @@ export default function RecipeView() {
                 </li>
               ) : (
                 <li key={i}>
-                  <span className="qty">
-                    {[formatQuantity(l.quantity, l.quantity_max), l.unit].filter(Boolean).join(" ")}
-                  </span>{" "}
+                  <span className="qty">{[l.quantity_text, l.unit].filter(Boolean).join(" ")}</span>{" "}
                   {l.item}
                   {l.prep_note && <span className="muted">, {l.prep_note}</span>}
                 </li>

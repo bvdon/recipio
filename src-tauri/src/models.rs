@@ -38,6 +38,20 @@ pub struct IngredientLine {
     pub unit: Option<String>,
     pub item: String,
     pub prep_note: Option<String>,
+    /// `quantity`/`quantity_max` formatted for display, e.g. "1½" or "2–3"; empty if none.
+    pub quantity_text: String,
+}
+
+/// An ingredient line as entered in the editor; `quantity` is the raw text
+/// ("1 1/2", "¾", "2-3"), parsed by Rust on save.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[ts(export)]
+pub struct IngredientInput {
+    pub is_heading: bool,
+    pub quantity: String,
+    pub unit: Option<String>,
+    pub item: String,
+    pub prep_note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -118,7 +132,7 @@ pub struct RecipeInput {
     pub youtube_url: Option<String>,
     pub source_url: Option<String>,
     pub nutrition: Nutrition,
-    pub ingredients: Vec<IngredientLine>,
+    pub ingredients: Vec<IngredientInput>,
     pub steps: Vec<String>,
     /// Category and tag names; unknown names are created on save.
     pub categories: Vec<String>,

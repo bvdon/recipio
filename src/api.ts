@@ -23,6 +23,7 @@ export const api = {
   saveRecipe: (input: RecipeInput) => invoke<Recipe>("save_recipe", { input }),
   deleteRecipe: (id: string) => invoke<void>("delete_recipe", { id }),
   stagePhoto: (path: string) => invoke<string>("stage_photo", { path }),
+  checkQuantity: (text: string) => invoke<boolean>("check_quantity", { text }),
   listLabels: (kind: LabelKind) => invoke<Label[]>("list_labels", { kind }),
   createLabel: (kind: LabelKind, name: string) => invoke<number>("create_label", { kind, name }),
   renameLabel: (kind: LabelKind, id: number, name: string) =>

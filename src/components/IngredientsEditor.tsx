@@ -1,11 +1,13 @@
-import { type KeyboardEvent, useEffect, useRef } from "react";
+import { type KeyboardEvent, type Ref, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Heading, Plus, X } from "lucide-react";
+import { api } from "../api";
 import SortableList from "./SortableList";
 
 export type IngredientRow = {
   key: string;
   is_heading: boolean;
-  /** Raw quantity text as typed, e.g. "1.5" or "2-3". Parsed on save. */
+  /** Raw quantity text as typed, e.g. "1 1/2" or "2-3". Parsed by Rust on save. */
   qty: string;
   unit: string;
   item: string;
@@ -14,18 +16,6 @@ export type IngredientRow = {
 
 export function blankRow(is_heading = false): IngredientRow {
   return { key: crypto.randomUUID(), is_heading, qty: "", unit: "", item: "", prep_note: "" };
-}
-
-/** Parses "1.5", "2", "2-3" or "2–3". Returns null for an empty field, "invalid" otherwise. */
-export function parseQty(
-  text: string,
-): { quantity: number; quantity_max: number | null } | null | "invalid" {
-  const t = text.trim().replace(",", ".");
-  if (t === "") return null;
-  const parts = t.split(/\s*[-–]\s*/);
-  const nums = parts.map((p) => (/^\d*\.?\d+$/.test(p) ? Number(p) : NaN));
-  if (parts.length > 2 || nums.some((n) => Number.isNaN(n))) return "invalid";
-  return { quantity: nums[0], quantity_max: nums.length === 2 ? nums[1] : null };
 }
 
 type Props = {
@@ -125,14 +115,10 @@ export default function IngredientsEditor({ rows, onChange }: Props) {
           ) : (
             <div className="ingredient-row" onKeyDown={(e) => onKeyDown(e, index)}>
               {handle}
-              <input
+              <QuantityInput
                 ref={firstInputRef(row.key)}
                 value={row.qty}
-                onChange={(e) => update(row.key, { qty: e.target.value })}
-                className={parseQty(row.qty) === "invalid" ? "invalid" : ""}
-                placeholder="1.5"
-                aria-label="Quantity"
-                inputMode="decimal"
+                onChange={(qty) => update(row.key, { qty })}
               />
               <input
                 value={row.unit}
@@ -166,9 +152,45 @@ export default function IngredientsEditor({ rows, onChange }: Props) {
         </button>
       </div>
       <p className="hint">
-        Enter adds a line · Backspace on an empty line removes it · Ranges like 2-3 are fine
+        Enter adds a line · Backspace on an empty line removes it · Quantities like 1/2, 1 1/2, ¾ or
+        2-3 are fine
       </p>
     </div>
+  );
+}
+
+/** Quantity field, checked by the Rust parser; marked invalid once you leave it. */
+function QuantityInput({
+  ref,
+  value,
+  onChange,
+}: {
+  ref: Ref<HTMLInputElement>;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const text = value.trim();
+  const check = useQuery({
+    queryKey: ["check-quantity", text],
+    queryFn: () => api.checkQuantity(text),
+    enabled: text !== "",
+    staleTime: Infinity,
+  });
+  const invalid = !focused && text !== "" && check.data === false;
+  return (
+    <input
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      className={invalid ? "invalid" : ""}
+      title={invalid ? "Not a quantity — try 2, 1.5, 1/2, 1 1/2 or 2-3" : undefined}
+      aria-invalid={invalid}
+      placeholder="1/2"
+      aria-label="Quantity"
+    />
   );
 }
 

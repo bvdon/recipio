@@ -9,11 +9,7 @@ import type { RecipeInput } from "../bindings/RecipeInput";
 import type { PhotoChange } from "../bindings/PhotoChange";
 import { ErrorBanner, PhotoPlaceholder, StarPicker } from "../components/common";
 import LabelPicker from "../components/LabelPicker";
-import IngredientsEditor, {
-  blankRow,
-  type IngredientRow,
-  parseQty,
-} from "../components/IngredientsEditor";
+import IngredientsEditor, { blankRow, type IngredientRow } from "../components/IngredientsEditor";
 import StepsEditor, { blankStep, type StepRow } from "../components/StepsEditor";
 
 type Form = {
@@ -58,12 +54,7 @@ function toForm(r: Recipe | null): Form {
       ? r.ingredients.map((l) => ({
           key: crypto.randomUUID(),
           is_heading: l.is_heading,
-          qty:
-            l.quantity === null
-              ? ""
-              : l.quantity_max === null
-                ? String(l.quantity)
-                : `${l.quantity}-${l.quantity_max}`,
+          qty: l.quantity_text,
           unit: l.unit ?? "",
           item: l.item,
           prep_note: l.prep_note ?? "",
@@ -99,20 +90,14 @@ function toInput(id: string, f: Form): RecipeInput | string[] {
   };
 
   if (f.title.trim() === "") problems.push("Please give the recipe a title.");
-  const ingredients = f.ingredients.map((row) => {
-    const q = row.is_heading ? null : parseQty(row.qty);
-    if (q === "invalid")
-      problems.push(`“${row.qty}” is not a valid quantity (use e.g. 1.5 or 2-3).`);
-    const parsed = q === "invalid" ? null : q;
-    return {
-      is_heading: row.is_heading,
-      quantity: parsed?.quantity ?? null,
-      quantity_max: parsed?.quantity_max ?? null,
-      unit: row.unit || null,
-      item: row.item,
-      prep_note: row.prep_note || null,
-    };
-  });
+  // Quantities are sent as typed; Rust parses and reports anything it can't read.
+  const ingredients = f.ingredients.map((row) => ({
+    is_heading: row.is_heading,
+    quantity: row.is_heading ? "" : row.qty,
+    unit: row.unit || null,
+    item: row.item,
+    prep_note: row.prep_note || null,
+  }));
 
   const input: RecipeInput = {
     id,

@@ -21,7 +21,6 @@ Rust layout (`src-tauri/src/`):
 | `db/`                       | Connection, migrations (`rusqlite_migration`), repositories (recipes, categories, tags, search) |
 | `core/ingredient_parser.rs` | Heuristic ingredient-line parser (pure, unit-tested)                                            |
 | `core/fraction.rs`          | Decimal → friendly fraction formatting (pure, unit-tested)                                      |
-| `core/scaling.rs`           | Servings scaling (pure, unit-tested)                                                            |
 | `core/duration.rs`          | ISO 8601 duration parsing (pure, unit-tested)                                                   |
 | `core/jsonld.rs`            | schema.org Recipe extraction from HTML (pure, unit-tested with fixtures)                        |
 | `media/`                    | Media folder paths, photo import, custom `recipio-media://` protocol with Range support         |
@@ -181,14 +180,16 @@ test instructions for the owner, and a stop for approval.
 
 ## 6. Open questions / decisions log
 
-| #   | Question                                                                            | Decision                                                                        |
-| --- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Q1  | Ranges ("2-3 eggs"): add nullable `quantity_max` to ingredients?                    | **Yes** — add `quantity_max`                                                    |
-| Q2  | YouTube now requires a JS runtime for yt-dlp (Deno). Also manage Deno?              | **Yes** — download Deno from denoland/deno GitHub releases, verify `.sha256sum` |
-| Q3  | Use custom range-capable `recipio-media://` protocol from the start?                | **Yes** — custom protocol from the start                                        |
-| Q4  | Checksum trust: publisher manifests over HTTPS acceptable (vs pinned hashes / GPG)? | **Yes** — publisher checksums are sufficient for v1                             |
-| Q5  | Backup import = full replace of library (with warning), not merge?                  | **Yes** — full replace after warning                                            |
-| Q6  | Unsigned/un-notarized installers acceptable for v1?                                 | **Yes** — unsigned is fine                                                      |
-| Q7  | Bundle identifier (determines app data path), e.g. `io.github.<user>.recipio`?      | **`io.github.bvdon.recipio`** (owner deferred to Claude)                        |
-| Q8  | GitHub repo: create/push at Phase 1 or Phase 7? Repo name/owner?                    | Public repo `bvdon/recipio` (timing: see CLAUDE.md status)                      |
-| Q9  | Testing scope                                                                       | macOS-only testing is fine for now; Windows/Linux via CI later                  |
+| #   | Question                                                                            | Decision                                                                                                   |
+| --- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Q1  | Ranges ("2-3 eggs"): add nullable `quantity_max` to ingredients?                    | **Yes** — add `quantity_max`                                                                               |
+| Q2  | YouTube now requires a JS runtime for yt-dlp (Deno). Also manage Deno?              | **Yes** — download Deno from denoland/deno GitHub releases, verify `.sha256sum`                            |
+| Q3  | Use custom range-capable `recipio-media://` protocol from the start?                | **Yes** — custom protocol from the start                                                                   |
+| Q4  | Checksum trust: publisher manifests over HTTPS acceptable (vs pinned hashes / GPG)? | **Yes** — publisher checksums are sufficient for v1                                                        |
+| Q5  | Backup import = full replace of library (with warning), not merge?                  | **Yes** — full replace after warning                                                                       |
+| Q6  | Unsigned/un-notarized installers acceptable for v1?                                 | **Yes** — unsigned is fine                                                                                 |
+| Q7  | Bundle identifier (determines app data path), e.g. `io.github.<user>.recipio`?      | **`io.github.bvdon.recipio`** (owner deferred to Claude)                                                   |
+| Q8  | GitHub repo: create/push at Phase 1 or Phase 7? Repo name/owner?                    | Public repo `bvdon/recipio` (timing: see CLAUDE.md status)                                                 |
+| Q9  | Testing scope                                                                       | macOS-only testing is fine for now; Windows/Linux via CI later                                             |
+| Q10 | Servings scaling (brief, Phase 3)                                                   | **Dropped** by the owner (2026-10-22) — no servings control, no `scaling.rs`                               |
+| Q11 | Quantity entry                                                                      | Typed as text (`3/4`, `1 1/2`, `½`, `2-3`), parsed in Rust (`quantity.rs`), shown as fractions (`¾`, `1½`) |

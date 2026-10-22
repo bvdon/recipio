@@ -10,6 +10,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{
     Label, LabelKind, PhotoChange, Recipe, RecipeInput, RecipeQuery, RecipeSummary,
 };
+use crate::quantity;
 
 #[tauri::command]
 pub fn new_recipe_id() -> String {
@@ -31,7 +32,8 @@ pub async fn get_recipe(state: State<'_, AppState>, id: String) -> AppResult<Rec
 
 #[tauri::command]
 pub async fn save_recipe(state: State<'_, AppState>, input: RecipeInput) -> AppResult<Recipe> {
-    let input = recipes::validate(&input)?;
+    let recipe = recipes::validate(&input)?;
+    let input = &recipe.input;
     let mut conn = state.db();
     let old_photo = recipes::media_of(&conn, &input.id)?.and_then(|m| m.photo_path);
     let photo = match &input.photo {
@@ -42,7 +44,7 @@ pub async fn save_recipe(state: State<'_, AppState>, input: RecipeInput) -> AppR
         }
     };
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    recipes::upsert(&mut conn, &input, photo.as_deref(), &now)?;
+    recipes::upsert(&mut conn, &recipe, photo.as_deref(), &now)?;
     if let Some(old) = old_photo.filter(|old| Some(old) != photo.as_ref()) {
         state.media.remove(&old);
     }
@@ -103,4 +105,11 @@ pub async fn merge_labels(
     target: i64,
 ) -> AppResult<()> {
     labels::merge(&mut state.db(), kind, &sources, target)
+}
+
+/// Whether quantity text as typed in the editor can be parsed (live validation; a plain
+/// bool so invalid keystrokes don't log errors).
+#[tauri::command]
+pub fn check_quantity(text: String) -> bool {
+    quantity::parse(&text).is_ok()
 }
