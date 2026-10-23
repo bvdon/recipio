@@ -45,6 +45,15 @@ impl AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Release builds abort on panic; record what happened in the log file first.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!(
+            "panic: {info}\n{}",
+            std::backtrace::Backtrace::force_capture()
+        );
+        default_hook(info);
+    }));
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -58,7 +67,15 @@ pub fn run() {
                         .body(Vec::new())
                         .expect("valid response"),
                 };
-                responder.respond(response);
+                // Answer on the main thread. WebKit cancels requests there (the video
+                // player does so constantly while seeking); answering from this thread
+                // could race a cancellation and abort the app inside wry (crash on
+                // 2026-10-23). On the main thread the two can't overlap, and wry skips
+                // requests that were already cancelled.
+                let main = app.clone();
+                if let Err(e) = main.run_on_main_thread(move || responder.respond(response)) {
+                    log::warn!("could not answer media request: {e}");
+                }
             });
         })
         .setup(|app| {
