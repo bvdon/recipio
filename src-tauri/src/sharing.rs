@@ -59,6 +59,8 @@ pub enum ShareTarget {
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, TS)]
 #[ts(export)]
+// Only the macOS share menu uses the position.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub struct Anchor {
     pub x: f64,
     pub y: f64,
@@ -70,6 +72,8 @@ pub struct Anchor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export)]
+// Messages, Mail and the share menu are macOS-only.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub enum Handoff {
     /// Messages opened with the friend and the file.
     Messages,

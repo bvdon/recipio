@@ -197,13 +197,17 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| match event {
-            tauri::RunEvent::Exit => process::kill_all(),
-            // macOS delivers opened files (Finder, Messages, Mail attachments) this way.
-            #[cfg(target_os = "macos")]
-            tauri::RunEvent::Opened { urls } => {
-                open_files(app, sharing::recipio_files(urls.iter().map(|u| u.as_str())));
-            }
-            _ => {}
-        });
+        // `app` is only needed for the macOS-only `Opened` event.
+        .run(
+            |#[cfg_attr(not(target_os = "macos"), allow(unused_variables))] app, event| match event
+            {
+                tauri::RunEvent::Exit => process::kill_all(),
+                // macOS delivers opened files (Finder, Messages, Mail attachments) this way.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Opened { urls } => {
+                    open_files(app, sharing::recipio_files(urls.iter().map(|u| u.as_str())));
+                }
+                _ => {}
+            },
+        );
 }
