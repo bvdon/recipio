@@ -36,7 +36,7 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 | 6 Cooking mode + backup | done, approved                    |
 | 6b Bookmarks + sharing  | done, approved                    |
 | 7 Packaging             | done, approved (Windows untested) |
-| 8 Friends (option 3)    | done, awaiting approval           |
+| 8 Friends (option 3)    | done, approved                    |
 
 Phase 1 delivered: scaffold, migration 0001 (full schema incl. categories/tags/FTS),
 recipe CRUD commands, photo staging/commit, `recipio-media://` protocol with Range
@@ -96,6 +96,11 @@ elsewhere; share files carry `from`/`note` and smaller photos; `.recipio` file a
 
 - single-instance plugin open attachments on the import screen. Design: PLAN.md §3
   "Phase 8 (as built)".
+
+All phases are done and approved; public pre-release **v0.1.0-beta.1** is out (tag carries
+the beta suffix; app version stays 0.1.0 because the Windows MSI rejects pre-release
+versions). The owner is using the app and will report findings. Open: Windows/Linux not
+tried by hand; installers unsigned (Q6); Windows share panel deferred (Q26).
 
 ## Environment / gotchas
 
