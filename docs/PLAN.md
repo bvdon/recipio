@@ -287,13 +287,13 @@ structured data, say so and keep just the URL.
 
 ### Sharing recipes (owner request after Phase 6)
 
-- Library sidebar → **Share recipes…** (`/share`): find/tick recipes (Select all /
+- Top bar → **Share recipes** (`/share`): find/tick recipes (Select all /
   Select these), see the photo/video size, optionally include downloaded videos (off by
   default — the friend can download from the YouTube link), **Save share file…** →
   `<title or "N recipes">.recipio`.
 - File = the backup zip layout with `format: "recipio-share"`: chosen recipes only, no
   star ratings (personal), labels travel on each recipe, bookmarks included.
-- Library sidebar → **Import shared recipes…** (`/share/import`): choose a `.recipio`
+- Top bar → **Import shared recipes** (`/share/import`): choose a `.recipio`
   (a backup `.zip` also works) → list with checkboxes; recipes whose id is already in the
   library are unticked and marked "Already in your library" (ticking adds a copy with a
   new id). **Add N recipes to my library** never changes or removes anything: files are

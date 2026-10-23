@@ -96,7 +96,9 @@ a {
   z-index: 10;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
+  gap: 0.5rem 1rem;
   padding: 0.6rem 1.5rem;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -1377,12 +1379,6 @@ h1 .count {
 
 .share-page {
   max-width: 820px;
-}
-.share-links {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.4rem;
 }
 .share-controls {
   display: flex;

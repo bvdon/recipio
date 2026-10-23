@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useNavigate } from "react-router";
-import { ChefHat, Globe, Plus, Settings } from "lucide-react";
+import { ChefHat, FileDown, Globe, Plus, Settings, Share2 } from "lucide-react";
 import ImportRecipeDialog from "./ImportRecipeDialog";
 
 export default function Layout() {
@@ -29,6 +29,18 @@ export default function Layout() {
         <div className="actions">
           <Link to="/settings" className="button ghost icon" title="Settings" aria-label="Settings">
             <Settings size={18} aria-hidden />
+          </Link>
+          <Link to="/share" className="button" title="Save chosen recipes in a file for a friend">
+            <Share2 size={16} aria-hidden />
+            Share recipes
+          </Link>
+          <Link
+            to="/share/import"
+            className="button"
+            title="Add recipes from a .recipio file a friend shared"
+          >
+            <FileDown size={16} aria-hidden />
+            Import shared recipes
           </Link>
           <button type="button" className="button" onClick={() => setImporting(true)}>
             <Globe size={16} aria-hidden />
