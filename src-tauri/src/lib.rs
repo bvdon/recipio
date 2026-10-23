@@ -1,6 +1,7 @@
 mod commands;
 mod db;
 mod error;
+mod ingredient_parser;
 mod media;
 mod models;
 mod quantity;
@@ -87,6 +88,7 @@ pub fn run() {
             commands::delete_label,
             commands::merge_labels,
             commands::check_quantity,
+            commands::parse_ingredients,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

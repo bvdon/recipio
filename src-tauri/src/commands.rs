@@ -11,6 +11,7 @@ use crate::models::{
     Label, LabelKind, PhotoChange, Recipe, RecipeInput, RecipeQuery, RecipeSummary,
 };
 use crate::quantity;
+use crate::{ingredient_parser, models::ParsedIngredient};
 
 #[tauri::command]
 pub fn new_recipe_id() -> String {
@@ -112,4 +113,11 @@ pub async fn merge_labels(
 #[tauri::command]
 pub fn check_quantity(text: String) -> bool {
     quantity::parse(&text).is_ok()
+}
+
+/// Splits pasted ingredient text into lines for review (paste-to-parse). Never fails:
+/// anything not understood lands in `item`.
+#[tauri::command]
+pub fn parse_ingredients(text: String) -> Vec<ParsedIngredient> {
+    ingredient_parser::parse_block(&text)
 }

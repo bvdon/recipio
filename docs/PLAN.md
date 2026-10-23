@@ -16,20 +16,20 @@ React + TS (Vite)  ──invoke()/events──►  Tauri v2 commands (thin)  ─
 
 Rust layout (`src-tauri/src/`):
 
-| Module                      | Responsibility                                                                                  |
-| --------------------------- | ----------------------------------------------------------------------------------------------- |
-| `db/`                       | Connection, migrations (`rusqlite_migration`), repositories (recipes, categories, tags, search) |
-| `core/ingredient_parser.rs` | Heuristic ingredient-line parser (pure, unit-tested)                                            |
-| `core/fraction.rs`          | Decimal → friendly fraction formatting (pure, unit-tested)                                      |
-| `core/duration.rs`          | ISO 8601 duration parsing (pure, unit-tested)                                                   |
-| `core/jsonld.rs`            | schema.org Recipe extraction from HTML (pure, unit-tested with fixtures)                        |
-| `media/`                    | Media folder paths, photo import, custom `recipio-media://` protocol with Range support         |
-| `tools/`                    | yt-dlp / ffmpeg / deno download, checksum verify, chmod, quarantine strip, version query        |
-| `video/`                    | Download job manager (spawn, progress parse, cancel, retry, transcode fallback)                 |
-| `import/`                   | Web page fetch + image download                                                                 |
-| `backup/`                   | Zip export/import                                                                               |
-| `commands/`                 | Tauri command wrappers; map internal errors → user-facing `AppError`                            |
-| `error.rs`                  | `thiserror` error enum, serialized to `{ kind, message }` for the UI                            |
+| Module                 | Responsibility                                                                                  |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| `db/`                  | Connection, migrations (`rusqlite_migration`), repositories (recipes, categories, tags, search) |
+| `ingredient_parser.rs` | Heuristic ingredient-line parser (pure, unit-tested); see §3 "Paste-to-parse"                   |
+| `core/fraction.rs`     | Decimal → friendly fraction formatting (pure, unit-tested)                                      |
+| `core/duration.rs`     | ISO 8601 duration parsing (pure, unit-tested)                                                   |
+| `core/jsonld.rs`       | schema.org Recipe extraction from HTML (pure, unit-tested with fixtures)                        |
+| `media/`               | Media folder paths, photo import, custom `recipio-media://` protocol with Range support         |
+| `tools/`               | yt-dlp / ffmpeg / deno download, checksum verify, chmod, quarantine strip, version query        |
+| `video/`               | Download job manager (spawn, progress parse, cancel, retry, transcode fallback)                 |
+| `import/`              | Web page fetch + image download                                                                 |
+| `backup/`              | Zip export/import                                                                               |
+| `commands/`            | Tauri command wrappers; map internal errors → user-facing `AppError`                            |
+| `error.rs`             | `thiserror` error enum, serialized to `{ kind, message }` for the UI                            |
 
 Shared types: Rust structs derive `ts_rs::TS`, exported to `src/bindings/` so the
 frontend types never drift from the backend.
@@ -116,6 +116,41 @@ Trust model: checksums are fetched over HTTPS from the same publisher (protects 
 corruption/truncation/mirror tampering, not a compromised publisher). See Q4.
 macOS: `chmod 755`, remove `com.apple.quarantine` xattr defensively.
 
+### Paste-to-parse ingredients
+
+Goal (brief, Phase 3): paste a block of ingredient text, get structured lines, review them
+before they are applied. The same parser will turn JSON-LD `recipeIngredient` strings into
+lines in Phase 5.
+
+- **Rust** `ingredient_parser.rs`: `parse_block(text)` → one `ParsedIngredient` per
+  non-blank line; `parse_line(line)` is the reusable unit. Command `parse_ingredients`.
+  Pure and unit-tested. It never errors — what it can't pick apart goes into `item`.
+- **Output shape** = an editor row (`is_heading`, `quantity`, `unit`, `item`, `prep_note`,
+  all strings). `quantity` is Rust-formatted display text ("1½", "2–3") that
+  `quantity::parse` accepts back, so pasted lines go through the normal save path.
+- **Per line, in order:**
+  1. Strip list markers (`•`, `*`, `▢`, `- `, …) and collapse whitespace.
+  2. Heading if it ends with `:`, starts with `#`, is all caps without digits ("SAUCE"),
+     or is a short "For the …" phrase without a comma. Trailing `:` removed.
+  3. Split a number glued to a word ("200g", "1½cups") — only a plain number prefix,
+     so "4-inch" stays whole.
+  4. Quantity = the longest run of up to 4 leading tokens that `quantity::parse` accepts
+     ("1 1/2", "2 to 3", "1-1/2"). "a"/"an" counts as 1 only when a unit follows.
+  5. Unit = a known unit word right after the quantity (fixed list: volume, weight, and
+     counts like clove/can/pinch/stick; `fl oz`; trailing `.` dropped; case kept as typed),
+     optionally preceded by a size in parentheses: "1 (14 oz) can". Without a quantity a
+     unit counts only before "of" ("Pinch of salt"). Size words (large, small) stay in the item.
+  6. Drop a leading "of". Prep note = text after the first comma, else a trailing
+     "(…)" ("onion (finely chopped)").
+  7. If nothing is left for the item ("2 cloves"), the unit word becomes the item.
+- **UI:** "Paste ingredients" button under the ingredient rows, and pasting multi-line
+  text into any ingredient field, both open a dialog: textarea on the left, live parsed
+  preview (Rust, per keystroke) on the right, "Add N ingredients". Lines are inserted
+  after the current row (replacing it if blank) and stay editable in the normal editor —
+  the preview is the review step; there is no per-line editing inside the dialog.
+- Not attempted: unit conversion, ingredient name normalisation, multi-line ingredients,
+  numbered lists ("1. flour" reads as quantity 1).
+
 ### Other
 
 - Screen wake in cooking mode: `keepawake` crate (IOKit / SetThreadExecutionState /
@@ -180,16 +215,18 @@ test instructions for the owner, and a stop for approval.
 
 ## 6. Open questions / decisions log
 
-| #   | Question                                                                            | Decision                                                                                                   |
-| --- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Q1  | Ranges ("2-3 eggs"): add nullable `quantity_max` to ingredients?                    | **Yes** — add `quantity_max`                                                                               |
-| Q2  | YouTube now requires a JS runtime for yt-dlp (Deno). Also manage Deno?              | **Yes** — download Deno from denoland/deno GitHub releases, verify `.sha256sum`                            |
-| Q3  | Use custom range-capable `recipio-media://` protocol from the start?                | **Yes** — custom protocol from the start                                                                   |
-| Q4  | Checksum trust: publisher manifests over HTTPS acceptable (vs pinned hashes / GPG)? | **Yes** — publisher checksums are sufficient for v1                                                        |
-| Q5  | Backup import = full replace of library (with warning), not merge?                  | **Yes** — full replace after warning                                                                       |
-| Q6  | Unsigned/un-notarized installers acceptable for v1?                                 | **Yes** — unsigned is fine                                                                                 |
-| Q7  | Bundle identifier (determines app data path), e.g. `io.github.<user>.recipio`?      | **`io.github.bvdon.recipio`** (owner deferred to Claude)                                                   |
-| Q8  | GitHub repo: create/push at Phase 1 or Phase 7? Repo name/owner?                    | Public repo `bvdon/recipio` (timing: see CLAUDE.md status)                                                 |
-| Q9  | Testing scope                                                                       | macOS-only testing is fine for now; Windows/Linux via CI later                                             |
-| Q10 | Servings scaling (brief, Phase 3)                                                   | **Dropped** by the owner (2026-10-22) — no servings control, no `scaling.rs`                               |
-| Q11 | Quantity entry                                                                      | Typed as text (`3/4`, `1 1/2`, `½`, `2-3`), parsed in Rust (`quantity.rs`), shown as fractions (`¾`, `1½`) |
+| #   | Question                                                                            | Decision                                                                                                       |
+| --- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Q1  | Ranges ("2-3 eggs"): add nullable `quantity_max` to ingredients?                    | **Yes** — add `quantity_max`                                                                                   |
+| Q2  | YouTube now requires a JS runtime for yt-dlp (Deno). Also manage Deno?              | **Yes** — download Deno from denoland/deno GitHub releases, verify `.sha256sum`                                |
+| Q3  | Use custom range-capable `recipio-media://` protocol from the start?                | **Yes** — custom protocol from the start                                                                       |
+| Q4  | Checksum trust: publisher manifests over HTTPS acceptable (vs pinned hashes / GPG)? | **Yes** — publisher checksums are sufficient for v1                                                            |
+| Q5  | Backup import = full replace of library (with warning), not merge?                  | **Yes** — full replace after warning                                                                           |
+| Q6  | Unsigned/un-notarized installers acceptable for v1?                                 | **Yes** — unsigned is fine                                                                                     |
+| Q7  | Bundle identifier (determines app data path), e.g. `io.github.<user>.recipio`?      | **`io.github.bvdon.recipio`** (owner deferred to Claude)                                                       |
+| Q8  | GitHub repo: create/push at Phase 1 or Phase 7? Repo name/owner?                    | Public repo `bvdon/recipio` (timing: see CLAUDE.md status)                                                     |
+| Q9  | Testing scope                                                                       | macOS-only testing is fine for now; Windows/Linux via CI later                                                 |
+| Q10 | Servings scaling (brief, Phase 3)                                                   | **Dropped** by the owner (2026-10-22) — no servings control, no `scaling.rs`                                   |
+| Q11 | Quantity entry                                                                      | Typed as text (`3/4`, `1 1/2`, `½`, `2-3`), parsed in Rust (`quantity.rs`), shown as fractions (`¾`, `1½`)     |
+| Q12 | Paste-to-parse review                                                               | Read-only preview in a dialog, then lines are added to the editor for any fixes (no editing inside the dialog) |
+| Q13 | App icon                                                                            | The logo's chef hat (lucide `ChefHat`), white on the accent terracotta; source `src-tauri/icons/icon.svg`      |

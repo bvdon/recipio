@@ -54,6 +54,19 @@ pub struct IngredientInput {
     pub prep_note: Option<String>,
 }
 
+/// An ingredient line picked apart by paste-to-parse, shaped like an editor row so the
+/// UI can show it for review and then drop it into the editor as-is. `quantity` is
+/// display text the quantity parser accepts back ("1½", "2–3"); unknown parts are "".
+#[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct ParsedIngredient {
+    pub is_heading: bool,
+    pub quantity: String,
+    pub unit: String,
+    pub item: String,
+    pub prep_note: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Nutrition {

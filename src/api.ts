@@ -2,6 +2,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { Label } from "./bindings/Label";
 import type { LabelKind } from "./bindings/LabelKind";
+import type { ParsedIngredient } from "./bindings/ParsedIngredient";
 import type { Recipe } from "./bindings/Recipe";
 import type { RecipeInput } from "./bindings/RecipeInput";
 import type { RecipeQuery } from "./bindings/RecipeQuery";
@@ -24,6 +25,7 @@ export const api = {
   deleteRecipe: (id: string) => invoke<void>("delete_recipe", { id }),
   stagePhoto: (path: string) => invoke<string>("stage_photo", { path }),
   checkQuantity: (text: string) => invoke<boolean>("check_quantity", { text }),
+  parseIngredients: (text: string) => invoke<ParsedIngredient[]>("parse_ingredients", { text }),
   listLabels: (kind: LabelKind) => invoke<Label[]>("list_labels", { kind }),
   createLabel: (kind: LabelKind, name: string) => invoke<number>("create_label", { kind, name }),
   renameLabel: (kind: LabelKind, id: number, name: string) =>

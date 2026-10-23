@@ -1,7 +1,16 @@
-import { type KeyboardEvent, type Ref, useEffect, useRef, useState } from "react";
+import {
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type Ref,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Heading, Plus, X } from "lucide-react";
+import { ClipboardPaste, Heading, Plus, X } from "lucide-react";
 import { api } from "../api";
+import type { ParsedIngredient } from "../bindings/ParsedIngredient";
+import PasteIngredientsDialog from "./PasteIngredientsDialog";
 import SortableList from "./SortableList";
 
 export type IngredientRow = {
@@ -18,6 +27,8 @@ export function blankRow(is_heading = false): IngredientRow {
   return { key: crypto.randomUUID(), is_heading, qty: "", unit: "", item: "", prep_note: "" };
 }
 
+const isBlank = (r: IngredientRow) => !r.qty && !r.unit && !r.item && !r.prep_note;
+
 type Props = {
   rows: IngredientRow[];
   onChange: (rows: IngredientRow[]) => void;
@@ -31,6 +42,8 @@ export default function IngredientsEditor({ rows, onChange }: Props) {
   const inputs = useRef(new Map<string, HTMLInputElement>());
   // Row to focus after the next render (set when a row is added or removed).
   const pendingFocus = useRef<string | null>(null);
+  // Open paste dialog: its starting text and the row the lines go after.
+  const [paste, setPaste] = useState<{ text: string; index: number } | null>(null);
 
   const focusAfterRender = (key: string) => {
     pendingFocus.current = key;
@@ -58,20 +71,35 @@ export default function IngredientsEditor({ rows, onChange }: Props) {
     if (prev) focusAfterRender(prev.key);
   };
 
+  // Parsed lines go after `index`; a blank row there is replaced rather than kept.
+  const applyPaste = (lines: ParsedIngredient[], index: number) => {
+    const added = lines.map((l) => ({
+      ...blankRow(l.is_heading),
+      qty: l.quantity,
+      unit: l.unit,
+      item: l.item,
+      prep_note: l.prep_note,
+    }));
+    const at = rows[index] && isBlank(rows[index]) ? index : index + 1;
+    onChange([...rows.slice(0, at), ...added, ...rows.slice(index + 1)]);
+    setPaste(null);
+  };
+
+  // Pasting several lines into any field of a row opens the paste dialog instead.
+  const onPaste = (e: ClipboardEvent, index: number) => {
+    const text = e.clipboardData.getData("text/plain");
+    if (!text.trim().includes("\n")) return;
+    e.preventDefault();
+    setPaste({ text, index });
+  };
+
   const onKeyDown = (e: KeyboardEvent, index: number) => {
     if (e.nativeEvent.isComposing) return;
     const row = rows[index];
     if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
       insertAfter(index);
-    } else if (
-      e.key === "Backspace" &&
-      !row.qty &&
-      !row.unit &&
-      !row.item &&
-      !row.prep_note &&
-      rows.length > 1
-    ) {
+    } else if (e.key === "Backspace" && isBlank(row) && rows.length > 1) {
       e.preventDefault();
       remove(index);
     }
@@ -101,7 +129,11 @@ export default function IngredientsEditor({ rows, onChange }: Props) {
         className="ingredient-rows"
         renderItem={(row, index, handle) =>
           row.is_heading ? (
-            <div className="ingredient-row heading" onKeyDown={(e) => onKeyDown(e, index)}>
+            <div
+              className="ingredient-row heading"
+              onKeyDown={(e) => onKeyDown(e, index)}
+              onPaste={(e) => onPaste(e, index)}
+            >
               {handle}
               <input
                 ref={firstInputRef(row.key)}
@@ -113,7 +145,11 @@ export default function IngredientsEditor({ rows, onChange }: Props) {
               <RemoveButton onClick={() => remove(index)} />
             </div>
           ) : (
-            <div className="ingredient-row" onKeyDown={(e) => onKeyDown(e, index)}>
+            <div
+              className="ingredient-row"
+              onKeyDown={(e) => onKeyDown(e, index)}
+              onPaste={(e) => onPaste(e, index)}
+            >
               {handle}
               <QuantityInput
                 ref={firstInputRef(row.key)}
@@ -150,10 +186,24 @@ export default function IngredientsEditor({ rows, onChange }: Props) {
         <button type="button" className="button" onClick={() => insertAfter(rows.length - 1, true)}>
           <Heading size={16} aria-hidden /> Section heading
         </button>
+        <button
+          type="button"
+          className="button"
+          onClick={() => setPaste({ text: "", index: rows.length - 1 })}
+        >
+          <ClipboardPaste size={16} aria-hidden /> Paste ingredients
+        </button>
       </div>
+      {paste && (
+        <PasteIngredientsDialog
+          initialText={paste.text}
+          onApply={(lines) => applyPaste(lines, paste.index)}
+          onClose={() => setPaste(null)}
+        />
+      )}
       <p className="hint">
         Enter adds a line · Backspace on an empty line removes it · Quantities like 1/2, 1 1/2, ¾ or
-        2-3 are fine
+        2-3 are fine · Paste several lines to parse them
       </p>
     </div>
   );

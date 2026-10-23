@@ -908,3 +908,80 @@ h1 .count {
     max-height: none;
   }
 }
+
+/* ---------- Paste ingredients dialog ---------- */
+
+.paste-dialog {
+  width: min(960px, calc(100vw - 3rem));
+  max-height: calc(100vh - 3rem);
+  padding: 1.25rem 1.5rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 40px rgb(0 0 0 / 25%);
+}
+.paste-dialog::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+.paste-dialog h2 {
+  margin: 0 0 0.75rem;
+}
+.paste-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 1rem;
+  height: min(420px, calc(100vh - 12rem));
+}
+.paste-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.paste-input textarea {
+  flex: 1;
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+.paste-preview {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.25rem 0.5rem;
+}
+.paste-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.paste-preview th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface);
+  padding: 0.3rem 0.4rem;
+}
+.paste-preview td {
+  padding: 0.3rem 0.4rem;
+  border-top: 1px solid var(--border);
+  vertical-align: top;
+}
+.paste-preview td:first-child {
+  white-space: nowrap;
+}
+.paste-preview tr.heading td {
+  font-weight: 650;
+  color: var(--accent);
+}
+.paste-actions {
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 1rem;
+}
+.paste-actions .hint {
+  margin: 0 auto 0 0;
+}

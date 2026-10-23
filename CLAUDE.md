@@ -26,15 +26,15 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 ## Current status
 
-| Phase                   | State                                    |
-| ----------------------- | ---------------------------------------- |
-| 1 Foundation            | done, approved                           |
-| 2 Organize              | done, approved                           |
-| 3 Ingredients plus      | fractions done; paste-to-parse remaining |
-| 4 Video                 | not started                              |
-| 5 Web import            | not started                              |
-| 6 Cooking mode + backup | not started                              |
-| 7 Packaging             | not started                              |
+| Phase                   | State                   |
+| ----------------------- | ----------------------- |
+| 1 Foundation            | done, approved          |
+| 2 Organize              | done, approved          |
+| 3 Ingredients plus      | done, awaiting approval |
+| 4 Video                 | not started             |
+| 5 Web import            | not started             |
+| 6 Cooking mode + backup | not started             |
+| 7 Packaging             | not started             |
 
 Phase 1 delivered: scaffold, migration 0001 (full schema incl. categories/tags/FTS),
 recipe CRUD commands, photo staging/commit, `recipio-media://` protocol with Range
@@ -47,10 +47,13 @@ library sidebar filters (AND), FTS prefix search, sort (title/added/updated/rati
 direction), `/organize` page (add, rename, delete, merge), clickable chips on the
 recipe page that open the filtered library.
 
-Phase 3 so far: quantities are typed as text and parsed in Rust (`quantity.rs`:
+Phase 3 delivered: quantities are typed as text and parsed in Rust (`quantity.rs`:
 fractions, mixed numbers, unicode ½, decimals, ranges), displayed as friendly fractions.
 **Scaling was dropped by the owner** (PLAN.md Q10) — don't build it. Nutrition (also in
-the brief's Phase 3) already shipped in Phase 1. Remaining: paste-to-parse ingredients.
+the brief's Phase 3) already shipped in Phase 1. Paste-to-parse: `ingredient_parser.rs`
+(heuristics in PLAN.md §3) + `PasteIngredientsDialog` (preview, then add to the editor).
+App icon = the logo's chef hat; regenerate with `npx tauri icon <1024px png>` from
+`src-tauri/icons/icon.svg` (delete the android/ios folders it creates).
 
 ## Environment / gotchas
 
@@ -79,6 +82,7 @@ the brief's Phase 3) already shipped in Phase 1. Remaining: paste-to-parse ingre
 - `src-tauri/src/db/` — `open` + migrations; `recipes.rs` (validate, upsert, delete, list/search/sort, FTS reindex); `labels.rs` (categories + tags via `LabelKind`: list, create, rename, delete, merge, link).
 - `src-tauri/src/media.rs` — media folder, photo staging, orphan sweep, `recipio-media://` handler + range parsing.
 - `src-tauri/src/quantity.rs` — quantity parse (`"1 1/2"`, `"¾"`, `"2-3"`) and fraction formatting.
+- `src-tauri/src/ingredient_parser.rs` — pasted ingredient text → editor-shaped lines (also for Phase 5 web import).
 - `src-tauri/src/models.rs` — shared types (ts-rs exported).
 - `src-tauri/src/error.rs` — `AppError` → `{ kind, message }`, logs detail on serialize.
 - `src/api.ts` — typed `invoke` wrappers, `mediaUrl()`, query keys.
