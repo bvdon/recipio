@@ -165,7 +165,7 @@ pub fn subject(titles: &[String], from: &str) -> String {
 pub fn message(note: &str, format: ShareFormat, count: usize) -> String {
     let hint = match format {
         ShareFormat::Recipio => format!(
-            "Open the attached .recipio file with Recipio to add {} to your recipes.",
+            "Download the attached .recipio file, then open Recipio. Go to “Friends” and click “Import a file” to import {} into your recipe collection.",
             if count == 1 { "it" } else { "them" }
         ),
         ShareFormat::Pdf => String::new(),
@@ -441,8 +441,8 @@ mod tests {
         );
         assert_eq!(subject(&three, ""), "Recipes");
         let text = message("  Try these!  ", ShareFormat::Recipio, 3);
-        assert!(text.starts_with("Try these!\n\nOpen the attached .recipio file"));
-        assert!(text.ends_with("add them to your recipes."));
+        assert!(text.starts_with("Try these!\n\nDownload the attached .recipio file"));
+        assert!(text.ends_with("import them into your recipe collection."));
         assert_eq!(message("", ShareFormat::Pdf, 1), "");
         assert_eq!(
             mailto("sam@example.com", "Recipes from Rob", "Hi & bye"),
