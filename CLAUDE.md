@@ -8,7 +8,7 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 1. `PROMPT.md` — the owner's original build brief (requirements, phases, quality bar).
    Local only, gitignored (contains personal details); if missing, `docs/PLAN.md` covers it.
-2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q9).
+2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q18).
 3. "Current status" below.
 
 ## Working rules (from the brief)
@@ -31,8 +31,8 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 | 1 Foundation            | done, approved          |
 | 2 Organize              | done, approved          |
 | 3 Ingredients plus      | done, approved          |
-| 4 Video                 | done, awaiting approval |
-| 5 Web import            | not started             |
+| 4 Video                 | done, approved          |
+| 5 Web import            | done, awaiting approval |
 | 6 Cooking mode + backup | not started             |
 | 7 Packaging             | not started             |
 
@@ -63,6 +63,14 @@ auto-download, pre-fills empty title/photo), player on the recipe page, Re-downl
 Retry / Cancel / Remove video, `/settings` with Update downloader. Design: PLAN.md §3.
 Live check: `cd src-tauri && cargo test -- --ignored live_install` downloads the real tools
 (set `RECIPIO_TOOLS_DIR` to keep them).
+
+Phase 5 delivered: "Import from web" (top bar) → `web_import.rs` fetches the page
+(browser-like headers, local-network addresses refused, size/time caps) → `jsonld.rs`
+reads the schema.org Recipe (pure, fixture-tested) → ingredients through
+`ingredient_parser`, times through `duration.rs`, labels matched to existing ones only,
+first YouTube video pre-filled, photo staged → the new-recipe editor opens pre-filled
+(router state) for review. Design: PLAN.md §3 "Web import". Live check:
+`cd src-tauri && RECIPIO_IMPORT_URLS="<url> …" cargo test -- --ignored live_import --nocapture`.
 
 ## Environment / gotchas
 
@@ -95,6 +103,9 @@ Live check: `cd src-tauri && cargo test -- --ignored live_install` downloads the
 - `src-tauri/src/tools.rs` — downloader binaries: platform sources, latest-release lookup, verified install, `tools.json`.
 - `src-tauri/src/video.rs` — download jobs (`video://job` events), format plan, progress, error classification, URL checks.
 - `src-tauri/src/process.rs` — spawning tools (arg arrays, no console window), cancel/kill process trees.
+- `src-tauri/src/web_import.rs` — page fetch (URL/host checks, caps, charset), label matching, image staging.
+- `src-tauri/src/jsonld.rs` — schema.org Recipe extraction from HTML (fixtures in `src-tauri/tests/fixtures/`).
+- `src-tauri/src/duration.rs` — ISO 8601 (and plain-text) durations → minutes.
 - `src-tauri/src/models.rs` — shared types (ts-rs exported).
 - `src-tauri/src/error.rs` — `AppError` → `{ kind, message }`, logs detail on serialize.
 - `src/api.ts` — typed `invoke` wrappers, `mediaUrl()`, query keys.
@@ -123,6 +134,9 @@ Live check: `cd src-tauri && cargo test -- --ignored live_install` downloads the
   the saved `video_status` with the live job (`useVideoDownload`). A finished job marks
   the recipe query stale with `refetchType: "none"` so an open editor isn't reset.
 - App data also has `bin/` (tools + `tools.json` + `cache/` + `tmp/`).
+- Web import never saves: the result travels as router state (`ImportState`) to
+  `/recipes/new`, whose form starts from it (so it's "unsaved"). The new-recipe id query is
+  keyed by `location.key`, so each visit to `/recipes/new` gets a fresh id.
 - Library search/filters live in the URL (`?q=…&c=<category id>&t=<tag id>`, repeatable) so
   Back restores them; view mode and sort are per-machine prefs in `localStorage`.
 - Categories and tags share one code path (`LabelKind`). Names are unique case-insensitively,

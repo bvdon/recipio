@@ -10,6 +10,7 @@ import type { RecipeSummary } from "./bindings/RecipeSummary";
 import type { Package } from "./bindings/Package";
 import type { ToolInfo } from "./bindings/ToolInfo";
 import type { VideoJob } from "./bindings/VideoJob";
+import type { WebImport } from "./bindings/WebImport";
 
 export type AppError = { kind: string; message: string };
 
@@ -45,6 +46,7 @@ export const api = {
   removeVideo: (recipeId: string) => invoke<void>("remove_video", { recipeId }),
   toolsStatus: () => invoke<ToolInfo[]>("tools_status"),
   installTools: (update: boolean) => invoke<Package[]>("install_tools", { update }),
+  importRecipe: (url: string) => invoke<WebImport>("import_recipe", { url }),
 };
 
 /** Tauri event names (see `video.rs` and `commands::install_tools`). */

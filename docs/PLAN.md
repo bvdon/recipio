@@ -183,6 +183,59 @@ lines in Phase 5.
 - Not attempted: unit conversion, ingredient name normalisation, multi-line ingredients,
   numbered lists ("1. flour" reads as quantity 1).
 
+### Web import (as built)
+
+Brief, Phase 5: fetch a page in Rust, read its schema.org Recipe JSON-LD, pre-fill the
+editor for review (never save automatically), download the main image; if there is no
+structured data, say so and keep just the URL.
+
+- **Entry:** "Import from web" in the top bar opens a dialog (pasting into the empty field
+  starts at once). Success navigates to `/recipes/new` with router state
+  `{ webImport }`; the editor starts from a blank form filled with the result, so it
+  counts as unsaved (leaving asks first). No recipe data → the dialog says so and offers
+  "Create recipe with just the link" (only `source_url` filled).
+- **Fetch (`web_import.rs`):** http/https only, no credentials, a missing scheme means
+  https. Addresses on this computer or the local network are refused (`localhost`,
+  `.local`, private/link-local/CGNAT IPs, IPv6 ULA/link-local, IPv4-mapped) — for the
+  page, every redirect hop and the image, since those are chosen by the page. DNS
+  names that resolve to private IPs aren't caught (acceptable for a desktop app).
+  Browser-like User-Agent and Accept headers (Q16); a fresh client per import with an
+  in-memory cookie jar (consent redirects); 10 s connect, 15 s page, 20 s image timeouts;
+  page ≤ 5 MB (HTML/XHTML/text only), image ≤ 10 MB. Charset: header, else
+  `<meta charset>`, else UTF-8 (`encoding_rs`). gzip/brotli accepted.
+- **Extraction (`jsonld.rs`, pure):** every `<script type="application/ld+json">` block
+  (`scraper`); broken JSON gets one repair pass (raw line breaks inside strings).
+  Recipes are found anywhere in the tree (`@graph`, arrays, nested `mainEntity`), `@type`
+  as string/list/`schema:`/URL form; the first Recipe with ingredients wins. `@id`
+  references are followed (Yoast's image graph). Text values: HTML tags stripped with
+  block tags as line breaks, entities decoded.
+  - Ingredients: `recipeIngredient` (or legacy `ingredients`), list or newline string →
+    `ingredient_parser::parse_line`.
+  - Steps: string (split on lines; leading "1." / "Step 2:" removed), `HowToStep`
+    (`text`, else `name`), `HowToSection` → its name goes in front of its first step
+    ("For the sauce: Melt the butter…"), since steps have no headings.
+  - Times: ISO 8601 (`duration.rs`, also plain "1 hr 30 mins"). Cook = `cookTime`, else
+    `totalTime − prepTime`; a lone `totalTime` is dropped (the editor has no total).
+  - Servings: first whole number of `recipeYield` (number, string or list).
+  - Nutrition: leading number of calories/protein/carbs/fat ("1,200 kcal", "3,5 g").
+  - Images: string/`ImageObject`/list; largest by width×height first, else page order;
+    relative URLs resolved; up to 3 tried; the bytes decide the type (jpg/png/webp/gif/avif).
+  - Labels (Q17): `recipeCategory`, `recipeCuisine`, `keywords` are matched
+    case-insensitively against **existing** categories, then tags; new labels are never
+    created from a page (keyword lists are SEO noise).
+  - Video: the first YouTube URL in `video` (`contentUrl`/`embedUrl`/`url`) fills the
+    Video field; it downloads only when the user clicks Download (Q18).
+  - Not imported: ratings (the app's rating is the user's own), author, total-only times.
+- Warnings shown on the editor notice: photo couldn't be downloaded, no ingredients, no
+  steps. Errors are plain language (not found, refused/blocked, too slow, unreachable,
+  not a web page, too large); details go to the log.
+- Tests: fixtures in `src-tauri/tests/fixtures/` are cut-down pages modelled on common
+  site shapes (WordPress + Yoast + WP Recipe Maker, a large publisher's top-level array,
+  a newspaper's multiple blocks, a hand-built blog with broken JSON, an article without a
+  recipe) — not copies of real pages. Live check:
+  `RECIPIO_IMPORT_URLS="<url> <url>" cargo test -- --ignored live_import --nocapture`.
+  Checked 2026-10-23 against 13 real recipe sites (all read correctly) and a page without a recipe.
+
 ### Other
 
 - Screen wake in cooking mode: `keepawake` crate (IOKit / SetThreadExecutionState /
@@ -197,27 +250,28 @@ lines in Phase 5.
 
 ### Rust crates
 
-| Crate                                                            | Why                                                      |
-| ---------------------------------------------------------------- | -------------------------------------------------------- |
-| `tauri` 2, `tauri-build`                                         | Framework                                                |
-| `tauri-plugin-dialog`, `tauri-plugin-opener`, `tauri-plugin-log` | Official plugins: file pickers, open URLs, log file      |
-| `rusqlite` (`bundled`)                                           | SQLite incl. FTS5, no system dependency; simple sync API |
-| `rusqlite_migration`                                             | Versioned migrations via `user_version`                  |
-| `serde`, `serde_json`                                            | Serialization                                            |
-| `thiserror`                                                      | Error types                                              |
-| `uuid` (v4)                                                      | Recipe IDs                                               |
-| `chrono`                                                         | Timestamps                                               |
-| `reqwest` (`rustls-tls`, `stream`, no default features)          | HTTP for tools, pages, images; no OpenSSL dependency     |
-| `sha2`, `hex`                                                    | Checksum verification                                    |
-| `zip`                                                            | Backup archives; Windows ffmpeg archive                  |
-| `tar`, `xz2`                                                     | Linux ffmpeg `.tar.xz` archives                          |
-| `scraper`                                                        | Locate `<script type="application/ld+json">` blocks      |
-| `fs4`                                                            | Free disk space check                                    |
-| `keepawake`                                                      | Keep screen awake in cooking mode                        |
-| `ts-rs`                                                          | Generate TS types from Rust structs                      |
-| `tokio` (via Tauri runtime; `process`, `io-util`)                | Child process streaming                                  |
-| `log`                                                            | Logging facade                                           |
-| dev: `tempfile`, `pretty_assertions`                             | Tests                                                    |
+| Crate                                                            | Why                                                       |
+| ---------------------------------------------------------------- | --------------------------------------------------------- |
+| `tauri` 2, `tauri-build`                                         | Framework                                                 |
+| `tauri-plugin-dialog`, `tauri-plugin-opener`, `tauri-plugin-log` | Official plugins: file pickers, open URLs, log file       |
+| `rusqlite` (`bundled`)                                           | SQLite incl. FTS5, no system dependency; simple sync API  |
+| `rusqlite_migration`                                             | Versioned migrations via `user_version`                   |
+| `serde`, `serde_json`                                            | Serialization                                             |
+| `thiserror`                                                      | Error types                                               |
+| `uuid` (v4)                                                      | Recipe IDs                                                |
+| `chrono`                                                         | Timestamps                                                |
+| `reqwest` (`rustls-tls`, `stream`, no default features)          | HTTP for tools, pages, images; no OpenSSL dependency      |
+| `sha2`, `hex`                                                    | Checksum verification                                     |
+| `zip`                                                            | Backup archives; Windows ffmpeg archive                   |
+| `tar`, `xz2`                                                     | Linux ffmpeg `.tar.xz` archives                           |
+| `scraper`                                                        | Locate `<script type="application/ld+json">` blocks       |
+| `encoding_rs`, `url`                                             | Page charsets; URL host checks (both already via reqwest) |
+| `fs4`                                                            | Free disk space check                                     |
+| `keepawake`                                                      | Keep screen awake in cooking mode                         |
+| `ts-rs`                                                          | Generate TS types from Rust structs                       |
+| `tokio` (via Tauri runtime; `process`, `io-util`)                | Child process streaming                                   |
+| `log`                                                            | Logging facade                                            |
+| dev: `tempfile`, `pretty_assertions`                             | Tests                                                     |
 
 Hand-written (no crate): ingredient parser, fraction formatting, scaling, ISO 8601
 durations, range-request handling.
@@ -264,3 +318,6 @@ test instructions for the owner, and a stop for approval.
 | Q13 | App icon                                                                            | The logo's chef hat (lucide `ChefHat`), white on the accent terracotta; source `src-tauri/icons/icon.svg`                               |
 | Q14 | Video format choice                                                                 | `-S res:1080` (short side) instead of `[height<=1080]`, so vertical videos stay at 1080p; H.264/AAC preferred, transcode only otherwise |
 | Q15 | Removing a video                                                                    | Immediate (after a confirm), not on Save; the YouTube URL is kept for re-download                                                       |
+| Q16 | Web import User-Agent                                                               | Browser-like (Safari) headers; many recipe sites refuse requests that name themselves as an app                                         |
+| Q17 | Web import categories/keywords                                                      | Matched to existing categories/tags only; never creates new labels from a page                                                          |
+| Q18 | Video named by an imported page                                                     | Fills the editor's Video field; nothing downloads until the user clicks Download                                                        |

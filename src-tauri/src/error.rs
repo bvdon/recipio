@@ -28,6 +28,9 @@ pub enum AppError {
     /// A video download problem; `message` is already plain language.
     #[error("{message}\n{detail}")]
     Video { message: String, detail: String },
+    /// A web import problem; `message` is already plain language.
+    #[error("{message}\n{detail}")]
+    Import { message: String, detail: String },
     #[error("cancelled")]
     Cancelled,
 }
@@ -45,6 +48,7 @@ impl AppError {
             AppError::Checksum(_) => "checksum",
             AppError::UnsupportedPlatform => "unsupported",
             AppError::Video { .. } => "video",
+            AppError::Import { .. } => "import",
             AppError::Cancelled => "cancelled",
         }
     }
@@ -67,7 +71,7 @@ impl AppError {
             AppError::UnsupportedPlatform => {
                 "Video downloads aren't available on this kind of computer.".into()
             }
-            AppError::Video { message, .. } => message.clone(),
+            AppError::Video { message, .. } | AppError::Import { message, .. } => message.clone(),
             AppError::Cancelled => "Cancelled.".into(),
         }
     }

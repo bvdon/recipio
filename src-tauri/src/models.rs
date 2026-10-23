@@ -77,7 +77,7 @@ pub struct ParsedIngredient {
     pub prep_note: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Nutrition {
     pub calories: Option<f64>,
@@ -160,6 +160,46 @@ pub struct RecipeInput {
     /// Category and tag names; unknown names are created on save.
     pub categories: Vec<String>,
     pub tags: Vec<String>,
+}
+
+/// A recipe read from a web page, shaped for the editor to show for review. Nothing is
+/// saved until the user saves the editor.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct ImportedRecipe {
+    pub source_url: String,
+    pub title: String,
+    pub description: String,
+    pub servings: Option<u32>,
+    pub prep_minutes: Option<u32>,
+    pub cook_minutes: Option<u32>,
+    pub ingredients: Vec<ParsedIngredient>,
+    pub steps: Vec<String>,
+    pub nutrition: Nutrition,
+    /// The page's categories/keywords that match existing categories and tags (new
+    /// labels are never created from a page).
+    pub categories: Vec<String>,
+    pub tags: Vec<String>,
+    /// A YouTube video named by the page; not downloaded until the user asks.
+    pub youtube_url: Option<String>,
+    /// Staged photo (media-relative, like `stage_photo`), if one could be downloaded.
+    pub photo: Option<String>,
+    /// Plain-language notes on what couldn't be imported.
+    pub warnings: Vec<String>,
+}
+
+/// Outcome of a web import: a recipe, or a page without recipe data.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+#[ts(export)]
+pub enum WebImport {
+    Found {
+        recipe: Box<ImportedRecipe>,
+    },
+    /// The page loaded but has no schema.org Recipe data; only the link can be kept.
+    NoRecipe {
+        source_url: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

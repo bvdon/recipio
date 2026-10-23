@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useNavigate } from "react-router";
-import { ChefHat, Plus, Settings } from "lucide-react";
+import { ChefHat, Globe, Plus, Settings } from "lucide-react";
+import ImportRecipeDialog from "./ImportRecipeDialog";
 
 export default function Layout() {
   const navigate = useNavigate();
+  const [importing, setImporting] = useState(false);
 
   // Cmd/Ctrl+N: new recipe from anywhere.
   useEffect(() => {
@@ -28,6 +30,10 @@ export default function Layout() {
           <Link to="/settings" className="button ghost icon" title="Settings" aria-label="Settings">
             <Settings size={18} aria-hidden />
           </Link>
+          <button type="button" className="button" onClick={() => setImporting(true)}>
+            <Globe size={16} aria-hidden />
+            Import from web
+          </button>
           <Link to="/recipes/new" className="button primary" title="New recipe (⌘/Ctrl+N)">
             <Plus size={16} aria-hidden />
             New recipe
@@ -37,6 +43,7 @@ export default function Layout() {
       <main className="content">
         <Outlet />
       </main>
+      {importing && <ImportRecipeDialog onClose={() => setImporting(false)} />}
     </div>
   );
 }

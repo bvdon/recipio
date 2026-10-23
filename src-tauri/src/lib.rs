@@ -1,13 +1,16 @@
 mod commands;
 mod db;
+mod duration;
 mod error;
 mod ingredient_parser;
+mod jsonld;
 mod media;
 mod models;
 mod process;
 mod quantity;
 mod tools;
 mod video;
+mod web_import;
 
 use std::collections::HashSet;
 use std::sync::{Mutex, MutexGuard};
@@ -107,6 +110,7 @@ pub fn run() {
             commands::remove_video,
             commands::tools_status,
             commands::install_tools,
+            commands::import_recipe,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

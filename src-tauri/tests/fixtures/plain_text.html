@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- Trimmed fixture modelled on a small hand-built blog: a broken JSON-LD block, then a
+     recipe with plain-text instructions, raw line breaks inside strings, a relative
+     image URL and a plain-text time. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Grandma's Shortbread</title>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "Recipe", "name": "Broken block",}</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Recipe",
+  "name": "Grandma&#39;s Shortbread",
+  "image": "/images/shortbread.jpg",
+  "recipeYield": "24 cookies",
+  "prepTime": "20 mins",
+  "cookTime": "PT25M",
+  "recipeIngredient": ["1 cup butter, softened", "½ cup sugar", "2 cups flour"],
+  "recipeInstructions": "1. Cream the butter and sugar.
+2. Work in the flour to a smooth dough.
+
+3.	Press into a pan, prick with a fork and bake at 325°F for 25 minutes."
+}
+</script>
+</head>
+<body><h1>Shortbread</h1></body>
+</html>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<!-- Trimmed fixture modelled on a newspaper cooking site: separate JSON-LD blocks for
+     the organization, breadcrumbs, related recipes and the recipe itself. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spring Pea Risotto Recipe</title>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Example Times Cooking","url":"https://cooking.example-times.com","logo":{"@type":"ImageObject","url":"https://static.example-times.com/logo.png","width":300,"height":60}}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Recipes","item":"https://cooking.example-times.com/recipes"}]}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"ItemList","name":"More like this","itemListElement":[{"@type":"ListItem","position":1,"item":{"@type":"Recipe","name":"Mushroom Risotto","url":"https://cooking.example-times.com/recipes/2-mushroom-risotto"}}]}</script>
+<script type="application/ld+json; charset=utf-8">
+{
+  "@context": "https://schema.org",
+  "@type": "Recipe",
+  "name": "Spring Pea Risotto",
+  "description": "Sweet peas and lemon brighten a classic risotto.",
+  "author": {"@type": "Person", "name": "Alex Chef"},
+  "image": [
+    {"@type": "ImageObject", "url": "https://static.example-times.com/images/risotto-threeByTwo.jpg", "width": 600, "height": 400},
+    {"@type": "ImageObject", "url": "https://static.example-times.com/images/risotto-superJumbo.jpg", "width": "2048", "height": "1365"}
+  ],
+  "recipeYield": "4 to 6 servings",
+  "cookTime": "PT40M",
+  "totalTime": "PT40M",
+  "recipeCategory": "dinner",
+  "recipeCuisine": "Italian",
+  "keywords": ["risotto", "peas", "vegetarian", "Dinner"],
+  "recipeIngredient": [
+    "6 cups vegetable stock",
+    "2 tablespoons unsalted butter",
+    "1 shallot, minced",
+    "1 ½ cups Arborio rice",
+    "2 cups fresh or frozen peas",
+    "½ cup grated parmesan, plus more for serving"
+  ],
+  "recipeInstructions": [
+    {"@type": "HowToStep", "text": "Warm the stock in a saucepan and keep it at a bare simmer."},
+    {"@type": "HowToStep", "text": "Cook the shallot in butter until translucent, then add the rice and toast for 2 minutes."},
+    {"@type": "HowToStep", "text": "Add the stock a ladle at a time, stirring, for about 25 minutes."},
+    {"@type": "HowToStep", "text": "Stir in the peas, parmesan and lemon zest. Season and serve."}
+  ]
+}
+</script>
+</head>
+<body><h1>Spring Pea Risotto</h1></body>
+</html>

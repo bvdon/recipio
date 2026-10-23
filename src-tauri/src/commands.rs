@@ -9,11 +9,12 @@ use crate::db::{labels, recipes};
 use crate::error::{AppError, AppResult};
 use crate::models::VideoStatus;
 use crate::models::{
-    Label, LabelKind, PhotoChange, Recipe, RecipeInput, RecipeQuery, RecipeSummary,
+    Label, LabelKind, PhotoChange, Recipe, RecipeInput, RecipeQuery, RecipeSummary, WebImport,
 };
 use crate::quantity;
 use crate::tools::{Package, ToolInfo};
 use crate::video::{self, VideoJob};
+use crate::web_import;
 use crate::{ingredient_parser, models::ParsedIngredient};
 
 #[tauri::command]
@@ -211,4 +212,11 @@ pub async fn install_tools(
         let _ = app.emit("tools://progress", p);
     };
     state.tools.install(update, &progress).await
+}
+
+/// Reads a recipe from a web page for the editor to show. Nothing is saved; a staged
+/// photo that is never saved is removed on the next start.
+#[tauri::command]
+pub async fn import_recipe(state: State<'_, AppState>, url: String) -> AppResult<WebImport> {
+    web_import::import(&state, &url).await
 }

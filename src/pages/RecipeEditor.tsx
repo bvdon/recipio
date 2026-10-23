@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useBlocker, useNavigate, useParams } from "react-router";
+import { Link, useBlocker, useLocation, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ask, open } from "@tauri-apps/plugin-dialog";
-import { ImagePlus, Save, Trash2 } from "lucide-react";
+import { Globe, ImagePlus, Save, Trash2 } from "lucide-react";
 import { api, errorMessage, mediaUrl, queryKeys } from "../api";
 import type { Recipe } from "../bindings/Recipe";
 import type { RecipeInput } from "../bindings/RecipeInput";
 import type { PhotoChange } from "../bindings/PhotoChange";
 import type { VideoInfo } from "../bindings/VideoInfo";
+import type { WebImport } from "../bindings/WebImport";
 import { ErrorBanner, PhotoPlaceholder, StarPicker } from "../components/common";
 import LabelPicker from "../components/LabelPicker";
 import IngredientsEditor, { blankRow, type IngredientRow } from "../components/IngredientsEditor";
 import StepsEditor, { blankStep, type StepRow } from "../components/StepsEditor";
 import { VideoField } from "../components/VideoDownload";
+import type { ImportState } from "../components/ImportRecipeDialog";
 
 type Form = {
   title: string;
@@ -66,6 +68,41 @@ function toForm(r: Recipe | null): Form {
     categories: r?.categories ?? [],
     tags: r?.tags ?? [],
     photo: { action: "keep" },
+  };
+}
+
+/** A blank form filled with what a web import found. */
+function fromImport(w: WebImport): Form {
+  const blank = toForm(null);
+  if (w.outcome === "no_recipe") return { ...blank, source_url: w.source_url };
+  const r = w.recipe;
+  return {
+    ...blank,
+    title: r.title,
+    description: r.description,
+    servings: str(r.servings),
+    prep: str(r.prep_minutes),
+    cook: str(r.cook_minutes),
+    youtube_url: r.youtube_url ?? "",
+    source_url: r.source_url,
+    calories: str(r.nutrition.calories),
+    protein: str(r.nutrition.protein_g),
+    carbs: str(r.nutrition.carbs_g),
+    fat: str(r.nutrition.fat_g),
+    ingredients: r.ingredients.length
+      ? r.ingredients.map((l) => ({
+          key: crypto.randomUUID(),
+          is_heading: l.is_heading,
+          qty: l.quantity,
+          unit: l.unit,
+          item: l.item,
+          prep_note: l.prep_note,
+        }))
+      : blank.ingredients,
+    steps: r.steps.length ? r.steps.map((s) => blankStep(s)) : blank.steps,
+    categories: r.categories,
+    tags: r.tags,
+    photo: r.photo ? { action: "replace", staged_path: r.photo } : blank.photo,
   };
 }
 
@@ -129,10 +166,13 @@ function toInput(id: string, f: Form): RecipeInput | string[] {
 
 export default function RecipeEditor() {
   const { id: routeId } = useParams();
+  const location = useLocation();
   const isNew = routeId === undefined;
+  const webImport = isNew ? ((location.state as ImportState | null)?.webImport ?? null) : null;
   // A new recipe gets its id up front so media (e.g. a video download) can be named after it.
+  // Keyed by the history entry, so opening an import from a blank editor starts afresh.
   const newId = useQuery({
-    queryKey: ["new-recipe-id"],
+    queryKey: ["new-recipe-id", location.key],
     queryFn: api.newRecipeId,
     enabled: isNew,
     gcTime: 0,
@@ -148,14 +188,25 @@ export default function RecipeEditor() {
   const error = newId.error ?? existing.error;
   if (error) return <ErrorBanner message={errorMessage(error)} />;
   if (!id || (!isNew && !existing.data)) return null;
-  return <EditorForm key={id} id={id} recipe={isNew ? null : existing.data!} />;
+  return (
+    <EditorForm key={id} id={id} recipe={isNew ? null : existing.data!} webImport={webImport} />
+  );
 }
 
-function EditorForm({ id, recipe }: { id: string; recipe: Recipe | null }) {
+function EditorForm({
+  id,
+  recipe,
+  webImport,
+}: {
+  id: string;
+  recipe: Recipe | null;
+  /** Pre-fills a new recipe; the form then counts as changed until saved. */
+  webImport: WebImport | null;
+}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const initial = useMemo(() => toForm(recipe), [recipe]);
-  const [form, setForm] = useState<Form>(initial);
+  const [form, setForm] = useState<Form>(() => (webImport ? fromImport(webImport) : initial));
   const [problems, setProblems] = useState<string[]>([]);
   const saved = useRef(false);
   const savedPhoto = recipe?.photo_path ? mediaUrl(recipe.photo_path, recipe.updated_at) : null;
@@ -282,6 +333,7 @@ function EditorForm({ id, recipe }: { id: string; recipe: Recipe | null }) {
         </div>
       </div>
 
+      {webImport && <ImportNotice webImport={webImport} />}
       {problems.length > 0 && <ErrorBanner message={problems.join(" ")} />}
       {save.isError && <ErrorBanner message={errorMessage(save.error)} />}
 
@@ -440,5 +492,33 @@ function EditorForm({ id, recipe }: { id: string; recipe: Recipe | null }) {
         </div>
       </details>
     </form>
+  );
+}
+
+function ImportNotice({ webImport }: { webImport: WebImport }) {
+  const url = webImport.outcome === "found" ? webImport.recipe.source_url : webImport.source_url;
+  let host = url;
+  try {
+    host = new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    // Show the address as is.
+  }
+  const warnings = webImport.outcome === "found" ? webImport.recipe.warnings : [];
+  return (
+    <div className="import-notice" role="status">
+      <Globe size={18} aria-hidden />
+      <div>
+        {webImport.outcome === "found"
+          ? `Imported from ${host}. Check everything, then save.`
+          : `${host} had no recipe information, so only the link was kept.`}
+        {warnings.length > 0 && (
+          <ul>
+            {warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }
