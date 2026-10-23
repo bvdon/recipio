@@ -7,6 +7,7 @@ import { api, errorMessage, mediaUrl, queryKeys } from "../api";
 import type { Label } from "../bindings/Label";
 import type { Recipe } from "../bindings/Recipe";
 import { ErrorBanner, formatMinutes, Stars } from "../components/common";
+import { isRunning, useVideoDownload, VideoStatusPanel } from "../components/VideoDownload";
 
 export default function RecipeView() {
   const { id = "" } = useParams();
@@ -101,6 +102,8 @@ export default function RecipeView() {
         </div>
       </header>
 
+      <RecipeVideo recipe={r} onChange={() => void recipe.refetch()} />
+
       <div className="recipe-body">
         <section className="ingredients">
           <h2>Ingredients</h2>
@@ -162,6 +165,32 @@ export default function RecipeView() {
         </section>
       )}
     </article>
+  );
+}
+
+/** The downloaded video with standard controls, or the download status and actions. */
+function RecipeVideo({ recipe: r, onChange }: { recipe: Recipe; onChange: () => void }) {
+  const dl = useVideoDownload(r.id, onChange);
+  const playable = r.video_status === "ready" && r.video_path !== null && !dl.removed;
+  if (!playable && !r.youtube_url && !isRunning(dl.job)) return null;
+  return (
+    <section className="recipe-video">
+      {playable && (
+        <video
+          controls
+          preload="metadata"
+          src={mediaUrl(r.video_path!, r.updated_at)}
+          poster={r.photo_path ? mediaUrl(r.photo_path, r.updated_at) : undefined}
+        />
+      )}
+      {(!playable || isRunning(dl.job) || dl.job?.stage === "failed") && (
+        <VideoStatusPanel
+          dl={dl}
+          saved={{ status: r.video_status, url: r.youtube_url }}
+          url={r.youtube_url ?? ""}
+        />
+      )}
+    </section>
   );
 }
 

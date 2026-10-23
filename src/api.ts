@@ -7,6 +7,9 @@ import type { Recipe } from "./bindings/Recipe";
 import type { RecipeInput } from "./bindings/RecipeInput";
 import type { RecipeQuery } from "./bindings/RecipeQuery";
 import type { RecipeSummary } from "./bindings/RecipeSummary";
+import type { Package } from "./bindings/Package";
+import type { ToolInfo } from "./bindings/ToolInfo";
+import type { VideoJob } from "./bindings/VideoJob";
 
 export type AppError = { kind: string; message: string };
 
@@ -33,6 +36,21 @@ export const api = {
   deleteLabel: (kind: LabelKind, id: number) => invoke<void>("delete_label", { kind, id }),
   mergeLabels: (kind: LabelKind, sources: number[], target: number) =>
     invoke<void>("merge_labels", { kind, sources, target }),
+  checkYoutubeUrl: (url: string) => invoke<boolean>("check_youtube_url", { url }),
+  startVideoDownload: (recipeId: string, url: string) =>
+    invoke<VideoJob>("start_video_download", { recipeId, url }),
+  cancelVideoDownload: (recipeId: string) => invoke<void>("cancel_video_download", { recipeId }),
+  getVideoJob: (recipeId: string) => invoke<VideoJob | null>("get_video_job", { recipeId }),
+  dismissVideoJob: (recipeId: string) => invoke<void>("dismiss_video_job", { recipeId }),
+  removeVideo: (recipeId: string) => invoke<void>("remove_video", { recipeId }),
+  toolsStatus: () => invoke<ToolInfo[]>("tools_status"),
+  installTools: (update: boolean) => invoke<Package[]>("install_tools", { update }),
+};
+
+/** Tauri event names (see `video.rs` and `commands::install_tools`). */
+export const events = {
+  videoJob: "video://job",
+  toolsProgress: "tools://progress",
 };
 
 /** URL for a file in the media folder. `version` busts the webview cache after a replace. */
@@ -49,4 +67,6 @@ export const queryKeys = {
   allRecipes: ["recipe"] as const,
   labels: (kind: LabelKind) => ["labels", kind] as const,
   allLabels: ["labels"] as const,
+  videoJob: (recipeId: string) => ["video-job", recipeId] as const,
+  tools: ["tools"] as const,
 };

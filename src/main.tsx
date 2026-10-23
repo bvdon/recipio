@@ -8,6 +8,7 @@ import Library from "./pages/Library";
 import RecipeView from "./pages/RecipeView";
 import RecipeEditor from "./pages/RecipeEditor";
 import Organize from "./pages/Organize";
+import Settings from "./pages/Settings";
 import "./styles.css";
 
 window.addEventListener("error", (e) => void logError(`ui: ${e.message}`));
@@ -31,6 +32,7 @@ const router = createHashRouter([
       { path: "recipes/:id", element: <RecipeView /> },
       { path: "recipes/:id/edit", element: <RecipeEditor /> },
       { path: "organize", element: <Organize /> },
+      { path: "settings", element: <Settings /> },
     ],
   },
 ]);

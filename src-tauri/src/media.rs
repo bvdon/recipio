@@ -20,6 +20,9 @@ const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "avif"]
 const MAX_PHOTO_BYTES: u64 = 50 * 1024 * 1024;
 /// Largest body returned for one range request; players ask for the rest as needed.
 const MAX_RANGE_BYTES: u64 = 4 * 1024 * 1024;
+/// Files above this are never read whole: a request without `Range` gets the first
+/// chunk as a partial response, which media players handle by asking for more.
+const MAX_FULL_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct MediaDir {
@@ -94,6 +97,64 @@ impl MediaDir {
         Ok(rel)
     }
 
+    pub fn tmp_dir(&self) -> PathBuf {
+        self.root.join(TMP)
+    }
+
+    /// Writes downloaded image bytes (e.g. a video thumbnail) into the staging area, like
+    /// `stage_photo`.
+    pub fn stage_bytes(&self, ext: &str, data: &[u8]) -> AppResult<String> {
+        let rel = format!("{TMP}/{}.{ext}", uuid::Uuid::new_v4());
+        fs::write(self.root.join(&rel), data)?;
+        Ok(rel)
+    }
+
+    /// Moves a finished download from the staging area to `videos/<recipe_id>.mp4`
+    /// (replacing any previous video) and returns that relative path.
+    pub fn commit_video(&self, recipe_id: &str, file: &Path) -> AppResult<String> {
+        if file.parent() != Some(self.tmp_dir().as_path()) {
+            return Err(AppError::Download(format!(
+                "unexpected video location {}",
+                file.display()
+            )));
+        }
+        let rel = format!("{VIDEOS}/{recipe_id}.mp4");
+        fs::rename(file, self.root.join(&rel))?;
+        Ok(rel)
+    }
+
+    /// The finished-but-not-yet-moved download for a recipe, if yt-dlp didn't report it.
+    pub fn find_video_temp(&self, recipe_id: &str) -> Option<PathBuf> {
+        let prefix = format!("{recipe_id}.dl.");
+        fs::read_dir(self.tmp_dir())
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| {
+                let name = p.file_name().unwrap_or_default().to_string_lossy();
+                name.starts_with(&prefix)
+                    && !name.ends_with(".part")
+                    && !name.ends_with(".ytdl")
+                    && !name.contains(".f")
+            })
+    }
+
+    /// Removes a recipe's partial download files (after success, failure or cancel).
+    pub fn remove_video_temp(&self, recipe_id: &str) {
+        let Ok(entries) = fs::read_dir(self.tmp_dir()) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&format!("{recipe_id}."))
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
     /// Deletes a media file. Missing files are fine; other failures are logged, not raised,
     /// because the database change they accompany has already happened.
     pub fn remove(&self, rel: &str) {
@@ -152,6 +213,10 @@ fn serve_file(path: &Path, range: Option<&str>) -> std::io::Result<Response<Vec<
         .header(header::CONTENT_TYPE, content_type(path))
         .header(header::ACCEPT_RANGES, "bytes");
 
+    let range = match range {
+        None if size > MAX_FULL_BYTES => Some("bytes=0-"),
+        r => r,
+    };
     let Some(range) = range else {
         let mut body = Vec::with_capacity(size as usize);
         file.read_to_end(&mut body)?;

@@ -83,25 +83,47 @@ correct `Content-Type`, and full `Range: bytes=` support (206 / 416). One code p
 all three platforms, so seeking behaves identically. (Tauri's built-in asset protocol
 does handle ranges in v2, but historically has had per-platform quirks; see Q3.)
 
-### yt-dlp invocation
+### yt-dlp invocation (as built, `video.rs`)
 
-Argument arrays only (`std::process::Command` / `tokio::process`), never a shell.
-Pass `--` before the URL. Validate URL host is youtube.com / youtu.be / m.youtube.com.
+Argument arrays only (`tokio::process`, `process.rs`), never a shell; `--` before the URL.
+Every call: `--ignore-config --no-playlist --js-runtimes deno:<bin>/deno
+--ffmpeg-location <bin> --cache-dir <bin>/cache --encoding utf-8`.
+URL check (`video::youtube_url`): http(s), host youtube.com / www. / m. / music. /
+youtu.be / youtube-nocookie, must name a video (`v=`, `/shorts/`, `/embed/`, `/live/`,
+youtu.be path), no credentials.
 
-1. Metadata: `yt-dlp -J --no-playlist -- <url>` → title, thumbnail, duration.
-2. Download (H.264/AAC preferred):
-   `-f "bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/b[height<=1080][vcodec^=avc1][acodec^=mp4a]"`
-   `--merge-output-format mp4 --ffmpeg-location <bin> --no-playlist --newline`
-   `--progress-template` (JSON) → parsed and emitted as `video://progress` events.
-3. Fallback if no avc1/mp4a: `bv*[height<=1080]+ba/b[height<=1080]`, then ffmpeg
-   transcode `-c:v libx264 -preset veryfast -crf 20 -c:a aac -movflags +faststart`.
-   UI is told "transcoding, this may take longer" with ffmpeg `-progress` output.
+1. Metadata + format choice: `yt-dlp -J -f <FORMAT> -S res:1080 -- <url>` with
+   `FORMAT = bv*[vcodec^=avc1]+ba[acodec^=mp4a]/b[vcodec^=avc1][acodec^=mp4a]/bv*+ba/b`.
+   `-S res:1080` = largest resolution up to 1080p measured on the **short side**, so
+   vertical videos (1080×1920) aren't pushed down to 480p (a plain `[height<=1080]`
+   filter would). Rust then rejects a choice whose short side is > 1080.
+   Title, duration and thumbnail come from the same JSON; the thumbnail (https,
+   ytimg/ggpht hosts only, ≤ 10 MB, jpeg/webp/png) is staged like a chosen photo.
+2. Download exactly the chosen `format_id`: `-o tmp/<id>.dl.%(ext)s`,
+   `--merge-output-format mp4` (or `mkv` when a transcode follows),
+   `--progress-template "download:RECIPIO_PROGRESS %(progress)j"` and
+   `--print "after_move:RECIPIO_FILE %(filepath)s"` (+ `--no-simulate --progress --newline`).
+   Overall % weights video/audio parts by their sizes from step 1.
+3. Only if the choice isn't avc1 + mp4a: ffmpeg `-c:v libx264 -preset veryfast -crf 20
+-pix_fmt yuv420p -c:a aac -b:a 160k -movflags +faststart -progress pipe:1`; the UI
+   says it may take a while.
 
-- Download into `media/tmp/`, atomic rename to `media/videos/<id>.mp4` on success.
-- Cancel = kill child process + delete temp files. Retry = new job.
-- Disk-space pre-check (`fs4::available_space`) against estimated filesize from metadata.
-- Error classification from yt-dlp stderr: invalid URL, private/unavailable, network,
-  disk full, unknown (full text to log).
+- Download into `media/tmp/`, rename to `media/videos/<id>.mp4` on success (replacing an
+  older video). The DB row is updated then (`video_path`, `ready`, `youtube_url`,
+  `updated_at`); if the recipe isn't saved yet, `save_recipe` links the file later.
+- One job per recipe, state in memory (`Videos`), pushed as `video://job` events
+  (throttled to 4/s) and readable with `get_video_job` when a page opens mid-download.
+- Cancel kills the whole process tree (own process group / `taskkill /T`); all tools are
+  also killed on app exit. Temp files are removed after every outcome.
+- Disk-space pre-check (`fs4::available_space`): estimate (×2 when transcoding) + 200 MB.
+- yt-dlp stderr → plain-language message (`classify`: disk full, bot check,
+  age-restricted, private, unavailable, bad link, no format, network, unknown);
+  the full text goes to the log.
+- Statuses: `none | ready | failed | missing` are stored; "downloading" lives in the job.
+  Startup turns stale `downloading` into `failed` and `ready`-without-file into
+  `missing`; `get_recipe` does the same check.
+- First download installs the tools automatically (stage "Setting up the video
+  downloader"); Settings → **Update downloader** re-checks all three.
 
 ### Binary sources (verified by SHA-256 before first use)
 
@@ -115,6 +137,16 @@ Pass `--` before the URL. Validate URL host is youtube.com / youtu.be / m.youtub
 Trust model: checksums are fetched over HTTPS from the same publisher (protects against
 corruption/truncation/mirror tampering, not a compromised publisher). See Q4.
 macOS: `chmod 755`, remove `com.apple.quarantine` xattr defensively.
+
+As built (`tools.rs`): "latest" is resolved without the GitHub API by reading the
+redirect of `…/releases/latest` (→ `/releases/tag/<tag>`), and for martin-riedl the
+redirect of `/redirect/latest/macos/<arch>/release/ffmpeg.zip` (→ build folder
+`<ts>_<version>`; its `HEAD` answers 404, so a non-following `GET` is used).
+FFmpeg-Builds' `latest` tag is rolling, so its asset checksum identifies the build.
+`bin/tools.json` records `source_id` + display version per package; Update downloader
+reinstalls a package only when its `source_id` changed. Downloads stream to `bin/tmp/`
+with SHA-256 computed on the fly (≤ 400 MB), are verified, unpacked (zip / tar.xz, only
+the wanted executables), made executable, then renamed into place.
 
 ### Paste-to-parse ingredients
 
@@ -215,18 +247,20 @@ test instructions for the owner, and a stop for approval.
 
 ## 6. Open questions / decisions log
 
-| #   | Question                                                                            | Decision                                                                                                       |
-| --- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Q1  | Ranges ("2-3 eggs"): add nullable `quantity_max` to ingredients?                    | **Yes** — add `quantity_max`                                                                                   |
-| Q2  | YouTube now requires a JS runtime for yt-dlp (Deno). Also manage Deno?              | **Yes** — download Deno from denoland/deno GitHub releases, verify `.sha256sum`                                |
-| Q3  | Use custom range-capable `recipio-media://` protocol from the start?                | **Yes** — custom protocol from the start                                                                       |
-| Q4  | Checksum trust: publisher manifests over HTTPS acceptable (vs pinned hashes / GPG)? | **Yes** — publisher checksums are sufficient for v1                                                            |
-| Q5  | Backup import = full replace of library (with warning), not merge?                  | **Yes** — full replace after warning                                                                           |
-| Q6  | Unsigned/un-notarized installers acceptable for v1?                                 | **Yes** — unsigned is fine                                                                                     |
-| Q7  | Bundle identifier (determines app data path), e.g. `io.github.<user>.recipio`?      | **`io.github.bvdon.recipio`** (owner deferred to Claude)                                                       |
-| Q8  | GitHub repo: create/push at Phase 1 or Phase 7? Repo name/owner?                    | Public repo `bvdon/recipio` (timing: see CLAUDE.md status)                                                     |
-| Q9  | Testing scope                                                                       | macOS-only testing is fine for now; Windows/Linux via CI later                                                 |
-| Q10 | Servings scaling (brief, Phase 3)                                                   | **Dropped** by the owner (2026-10-22) — no servings control, no `scaling.rs`                                   |
-| Q11 | Quantity entry                                                                      | Typed as text (`3/4`, `1 1/2`, `½`, `2-3`), parsed in Rust (`quantity.rs`), shown as fractions (`¾`, `1½`)     |
-| Q12 | Paste-to-parse review                                                               | Read-only preview in a dialog, then lines are added to the editor for any fixes (no editing inside the dialog) |
-| Q13 | App icon                                                                            | The logo's chef hat (lucide `ChefHat`), white on the accent terracotta; source `src-tauri/icons/icon.svg`      |
+| #   | Question                                                                            | Decision                                                                                                                                |
+| --- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Q1  | Ranges ("2-3 eggs"): add nullable `quantity_max` to ingredients?                    | **Yes** — add `quantity_max`                                                                                                            |
+| Q2  | YouTube now requires a JS runtime for yt-dlp (Deno). Also manage Deno?              | **Yes** — download Deno from denoland/deno GitHub releases, verify `.sha256sum`                                                         |
+| Q3  | Use custom range-capable `recipio-media://` protocol from the start?                | **Yes** — custom protocol from the start                                                                                                |
+| Q4  | Checksum trust: publisher manifests over HTTPS acceptable (vs pinned hashes / GPG)? | **Yes** — publisher checksums are sufficient for v1                                                                                     |
+| Q5  | Backup import = full replace of library (with warning), not merge?                  | **Yes** — full replace after warning                                                                                                    |
+| Q6  | Unsigned/un-notarized installers acceptable for v1?                                 | **Yes** — unsigned is fine                                                                                                              |
+| Q7  | Bundle identifier (determines app data path), e.g. `io.github.<user>.recipio`?      | **`io.github.bvdon.recipio`** (owner deferred to Claude)                                                                                |
+| Q8  | GitHub repo: create/push at Phase 1 or Phase 7? Repo name/owner?                    | Public repo `bvdon/recipio` (timing: see CLAUDE.md status)                                                                              |
+| Q9  | Testing scope                                                                       | macOS-only testing is fine for now; Windows/Linux via CI later                                                                          |
+| Q10 | Servings scaling (brief, Phase 3)                                                   | **Dropped** by the owner (2026-10-22) — no servings control, no `scaling.rs`                                                            |
+| Q11 | Quantity entry                                                                      | Typed as text (`3/4`, `1 1/2`, `½`, `2-3`), parsed in Rust (`quantity.rs`), shown as fractions (`¾`, `1½`)                              |
+| Q12 | Paste-to-parse review                                                               | Read-only preview in a dialog, then lines are added to the editor for any fixes (no editing inside the dialog)                          |
+| Q13 | App icon                                                                            | The logo's chef hat (lucide `ChefHat`), white on the accent terracotta; source `src-tauri/icons/icon.svg`                               |
+| Q14 | Video format choice                                                                 | `-S res:1080` (short side) instead of `[height<=1080]`, so vertical videos stay at 1080p; H.264/AAC preferred, transcode only otherwise |
+| Q15 | Removing a video                                                                    | Immediate (after a confirm), not on Save; the YouTube URL is kept for re-download                                                       |

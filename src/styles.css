@@ -985,3 +985,104 @@ h1 .count {
 .paste-actions .hint {
   margin: 0 auto 0 0;
 }
+
+/* ---------- Video ---------- */
+
+.video-field {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 720px;
+}
+.video-status {
+  display: grid;
+  gap: 0.4rem;
+}
+.video-status:empty {
+  display: none;
+}
+.video-status progress {
+  width: 100%;
+  height: 8px;
+  appearance: none;
+  border: none;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-2);
+  accent-color: var(--accent);
+}
+.video-status progress::-webkit-progress-bar {
+  background: var(--surface-2);
+}
+.video-status progress::-webkit-progress-value {
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.25s ease;
+}
+.video-progress-head,
+.video-ready {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+.video-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 550;
+}
+.video-ready .ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--accent);
+}
+.recipe-video {
+  max-width: 960px;
+}
+.recipe-video video {
+  display: block;
+  width: 100%;
+  max-height: 70vh;
+  border-radius: var(--radius);
+  background: #000;
+}
+.recipe-video .video-status {
+  margin-top: 0.6rem;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* ---------- Settings ---------- */
+
+.settings {
+  max-width: 720px;
+}
+.settings section > p.muted {
+  margin-top: 0;
+}
+.tools-table {
+  border-collapse: collapse;
+  margin: 0.75rem 0 1rem;
+  min-width: 320px;
+}
+.tools-table th,
+.tools-table td {
+  padding: 0.45rem 1.5rem 0.45rem 0;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.tools-table th {
+  font-weight: 550;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 1s linear infinite;
+}

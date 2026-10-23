@@ -30,8 +30,8 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 | ----------------------- | ----------------------- |
 | 1 Foundation            | done, approved          |
 | 2 Organize              | done, approved          |
-| 3 Ingredients plus      | done, awaiting approval |
-| 4 Video                 | not started             |
+| 3 Ingredients plus      | done, approved          |
+| 4 Video                 | done, awaiting approval |
 | 5 Web import            | not started             |
 | 6 Cooking mode + backup | not started             |
 | 7 Packaging             | not started             |
@@ -54,6 +54,15 @@ the brief's Phase 3) already shipped in Phase 1. Paste-to-parse: `ingredient_par
 (heuristics in PLAN.md §3) + `PasteIngredientsDialog` (preview, then add to the editor).
 App icon = the logo's chef hat; regenerate with `npx tauri icon <1024px png>` from
 `src-tauri/icons/icon.svg` (delete the android/ios folders it creates).
+
+Phase 4 delivered: `tools.rs` (yt-dlp, ffmpeg+ffprobe, Deno into `<app_data>/bin`,
+SHA-256 verified, `tools.json`), `video.rs` (background job per recipe: install tools if
+needed → `-J` metadata/format → download → optional transcode → `videos/<id>.mp4`),
+`process.rs` (spawn/kill trees, kill all on exit), editor Video section (paste a link →
+auto-download, pre-fills empty title/photo), player on the recipe page, Re-download /
+Retry / Cancel / Remove video, `/settings` with Update downloader. Design: PLAN.md §3.
+Live check: `cd src-tauri && cargo test -- --ignored live_install` downloads the real tools
+(set `RECIPIO_TOOLS_DIR` to keep them).
 
 ## Environment / gotchas
 
@@ -83,10 +92,13 @@ App icon = the logo's chef hat; regenerate with `npx tauri icon <1024px png>` fr
 - `src-tauri/src/media.rs` — media folder, photo staging, orphan sweep, `recipio-media://` handler + range parsing.
 - `src-tauri/src/quantity.rs` — quantity parse (`"1 1/2"`, `"¾"`, `"2-3"`) and fraction formatting.
 - `src-tauri/src/ingredient_parser.rs` — pasted ingredient text → editor-shaped lines (also for Phase 5 web import).
+- `src-tauri/src/tools.rs` — downloader binaries: platform sources, latest-release lookup, verified install, `tools.json`.
+- `src-tauri/src/video.rs` — download jobs (`video://job` events), format plan, progress, error classification, URL checks.
+- `src-tauri/src/process.rs` — spawning tools (arg arrays, no console window), cancel/kill process trees.
 - `src-tauri/src/models.rs` — shared types (ts-rs exported).
 - `src-tauri/src/error.rs` — `AppError` → `{ kind, message }`, logs detail on serialize.
 - `src/api.ts` — typed `invoke` wrappers, `mediaUrl()`, query keys.
-- `src/pages/` — `Library`, `RecipeView`, `RecipeEditor`, `Organize`. `src/components/` — editors, `LabelPicker`, `SortableList`, common bits.
+- `src/pages/` — `Library`, `RecipeView`, `RecipeEditor`, `Organize`, `Settings`. `src/components/` — editors, `LabelPicker`, `SortableList`, common bits.
 
 ## Conventions
 
@@ -105,7 +117,12 @@ App icon = the logo's chef hat; regenerate with `npx tauri icon <1024px png>` fr
   into `quantity`/`quantity_max` (REAL) and returns `ValidRecipe`. Output lines carry
   Rust-formatted `quantity_text` — the UI never formats numbers itself. Live check uses
   `check_quantity` (returns bool, so bad keystrokes don't log errors).
-- Hash routing (`createHashRouter`); routes: `/`, `/recipes/new`, `/recipes/:id`, `/recipes/:id/edit`, `/organize`.
+- Hash routing (`createHashRouter`); routes: `/`, `/recipes/new`, `/recipes/:id`, `/recipes/:id/edit`, `/organize`, `/settings`.
+- Video: `save_recipe` never touches video fields; the job writes them when it finishes
+  (and `save_recipe` links a file that finished before the first save). The UI combines
+  the saved `video_status` with the live job (`useVideoDownload`). A finished job marks
+  the recipe query stale with `refetchType: "none"` so an open editor isn't reset.
+- App data also has `bin/` (tools + `tools.json` + `cache/` + `tmp/`).
 - Library search/filters live in the URL (`?q=…&c=<category id>&t=<tag id>`, repeatable) so
   Back restores them; view mode and sort are per-machine prefs in `localStorage`.
 - Categories and tags share one code path (`LabelKind`). Names are unique case-insensitively,

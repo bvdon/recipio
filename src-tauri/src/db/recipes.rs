@@ -117,6 +117,52 @@ pub fn media_of(conn: &Connection, id: &str) -> AppResult<Option<RecipeMedia>> {
         .optional()?)
 }
 
+/// Records a recipe's video file and status. With `source`, also stores the YouTube URL
+/// it came from and bumps `updated_at` (a finished download). Returns false if the recipe
+/// doesn't exist (not saved yet).
+pub fn set_video(
+    conn: &Connection,
+    id: &str,
+    path: Option<&str>,
+    status: VideoStatus,
+    source: Option<(&str, &str)>,
+) -> AppResult<bool> {
+    let n = match source {
+        Some((url, now)) => conn.execute(
+            "UPDATE recipes SET video_path = ?2, video_status = ?3, youtube_url = ?4,
+                                updated_at = ?5
+             WHERE id = ?1",
+            params![id, path, status.as_str(), url, now],
+        )?,
+        None => conn.execute(
+            "UPDATE recipes SET video_path = ?2, video_status = ?3 WHERE id = ?1",
+            params![id, path, status.as_str()],
+        )?,
+    };
+    Ok(n > 0)
+}
+
+/// Startup check: downloads can't survive a restart, so `downloading` becomes `failed`
+/// (retry is offered), and a `ready` video whose file is gone becomes `missing`
+/// (re-download is offered). `exists` tells whether a media-relative file is present.
+pub fn check_videos(conn: &Connection, exists: impl Fn(&str) -> bool) -> AppResult<()> {
+    conn.execute(
+        "UPDATE recipes SET video_status = 'failed' WHERE video_status = 'downloading'",
+        [],
+    )?;
+    let ready: Vec<(String, Option<String>)> = conn
+        .prepare("SELECT id, video_path FROM recipes WHERE video_status = 'ready'")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    for (id, path) in ready {
+        if !path.as_deref().is_some_and(&exists) {
+            log::warn!("video for {id} is missing ({path:?})");
+            set_video(conn, &id, None, VideoStatus::Missing, None)?;
+        }
+    }
+    Ok(())
+}
+
 /// A recipe that passed validation: cleaned input plus parsed ingredient lines.
 #[derive(Debug, Clone)]
 pub struct ValidRecipe {
@@ -706,5 +752,40 @@ mod tests {
             fts_query("choc \"chip\" crème-brûlée").as_deref(),
             Some("\"choc\"* \"chip\"* \"crème-brûlée\"*")
         );
+    }
+
+    #[test]
+    fn records_and_checks_videos() {
+        let mut conn = open_in_memory();
+        let a = "00000000-0000-4000-8000-00000000000a";
+        let b = "00000000-0000-4000-8000-00000000000b";
+        assert!(!set_video(&conn, a, Some("videos/a.mp4"), VideoStatus::Ready, None).unwrap());
+        save(&mut conn, &sample(a), "2026-01-01T00:00:00Z");
+        save(&mut conn, &sample(b), "2026-01-01T00:00:00Z");
+
+        let url = "https://youtu.be/x";
+        let done = Some((url, "2026-02-01T00:00:00Z"));
+        assert!(set_video(&conn, a, Some("videos/a.mp4"), VideoStatus::Ready, done).unwrap());
+        let r = get(&conn, a).unwrap();
+        assert_eq!(r.video_status, VideoStatus::Ready);
+        assert_eq!(r.video_path.as_deref(), Some("videos/a.mp4"));
+        assert_eq!(r.youtube_url.as_deref(), Some(url));
+        assert_eq!(r.updated_at, "2026-02-01T00:00:00Z");
+        assert!(
+            list(&conn, &query(""))
+                .unwrap()
+                .iter()
+                .any(|s| s.id == a && s.has_video)
+        );
+
+        // Saving the recipe again leaves the video alone.
+        save(&mut conn, &sample(a), "2026-03-01T00:00:00Z");
+        assert_eq!(get(&conn, a).unwrap().video_status, VideoStatus::Ready);
+
+        set_video(&conn, b, None, VideoStatus::Downloading, None).unwrap();
+        check_videos(&conn, |_| false).unwrap();
+        assert_eq!(get(&conn, a).unwrap().video_status, VideoStatus::Missing);
+        assert_eq!(get(&conn, a).unwrap().video_path, None);
+        assert_eq!(get(&conn, b).unwrap().video_status, VideoStatus::Failed);
     }
 }

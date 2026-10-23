@@ -7,10 +7,12 @@ import { api, errorMessage, mediaUrl, queryKeys } from "../api";
 import type { Recipe } from "../bindings/Recipe";
 import type { RecipeInput } from "../bindings/RecipeInput";
 import type { PhotoChange } from "../bindings/PhotoChange";
+import type { VideoInfo } from "../bindings/VideoInfo";
 import { ErrorBanner, PhotoPlaceholder, StarPicker } from "../components/common";
 import LabelPicker from "../components/LabelPicker";
 import IngredientsEditor, { blankRow, type IngredientRow } from "../components/IngredientsEditor";
 import StepsEditor, { blankStep, type StepRow } from "../components/StepsEditor";
+import { VideoField } from "../components/VideoDownload";
 
 type Form = {
   title: string;
@@ -155,10 +157,14 @@ function EditorForm({ id, recipe }: { id: string; recipe: Recipe | null }) {
   const initial = useMemo(() => toForm(recipe), [recipe]);
   const [form, setForm] = useState<Form>(initial);
   const [problems, setProblems] = useState<string[]>([]);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(
-    recipe?.photo_path ? mediaUrl(recipe.photo_path, recipe.updated_at) : null,
-  );
   const saved = useRef(false);
+  const savedPhoto = recipe?.photo_path ? mediaUrl(recipe.photo_path, recipe.updated_at) : null;
+  const photoPreview =
+    form.photo.action === "replace"
+      ? mediaUrl(form.photo.staged_path)
+      : form.photo.action === "remove"
+        ? null
+        : savedPhoto;
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -207,8 +213,13 @@ function EditorForm({ id, recipe }: { id: string; recipe: Recipe | null }) {
       kind: "warning",
       okLabel: "Discard changes",
       cancelLabel: "Keep editing",
-    }).then((leave) => (leave ? blocker.proceed() : blocker.reset()));
-  }, [blocker]);
+    }).then((leave) => {
+      if (!leave) return blocker.reset();
+      // A never-saved recipe's download has nothing to attach to.
+      if (recipe === null) void api.removeVideo(id);
+      blocker.proceed();
+    });
+  }, [blocker, recipe, id]);
 
   const choosePhoto = async () => {
     const path = await open({
@@ -220,16 +231,30 @@ function EditorForm({ id, recipe }: { id: string; recipe: Recipe | null }) {
     try {
       const staged = await api.stagePhoto(path);
       set("photo", { action: "replace", staged_path: staged });
-      setPhotoPreview(mediaUrl(staged));
     } catch (e) {
       setProblems([errorMessage(e)]);
     }
   };
 
-  const removePhoto = () => {
-    set("photo", { action: "remove" });
-    setPhotoPreview(null);
-  };
+  const removePhoto = () => set("photo", { action: "remove" });
+
+  // A pasted YouTube link fills in the title and photo, but never replaces what's there.
+  const applyVideoInfo = useCallback(
+    (info: VideoInfo) =>
+      setForm((f) => {
+        const hasPhoto =
+          f.photo.action === "replace" || (f.photo.action === "keep" && savedPhoto !== null);
+        return {
+          ...f,
+          title: f.title.trim() ? f.title : info.title,
+          photo:
+            !hasPhoto && info.thumbnail
+              ? { action: "replace", staged_path: info.thumbnail }
+              : f.photo,
+        };
+      }),
+    [savedPhoto],
+  );
 
   return (
     <form
@@ -354,27 +379,27 @@ function EditorForm({ id, recipe }: { id: string; recipe: Recipe | null }) {
       </section>
 
       <section>
-        <h2>Sources</h2>
-        <div className="field-row">
-          <label>
-            YouTube URL
-            <input
-              value={form.youtube_url}
-              onChange={(e) => set("youtube_url", e.target.value)}
-              placeholder="https://www.youtube.com/watch?v=…"
-              type="url"
-            />
-          </label>
-          <label>
-            Original web page
-            <input
-              value={form.source_url}
-              onChange={(e) => set("source_url", e.target.value)}
-              placeholder="https://…"
-              type="url"
-            />
-          </label>
-        </div>
+        <h2>Video</h2>
+        <VideoField
+          recipeId={id}
+          value={form.youtube_url}
+          onChange={(url) => set("youtube_url", url)}
+          saved={{ status: recipe?.video_status ?? "none", url: recipe?.youtube_url ?? null }}
+          onInfo={applyVideoInfo}
+        />
+      </section>
+
+      <section>
+        <h2>Source</h2>
+        <label>
+          Original web page
+          <input
+            value={form.source_url}
+            onChange={(e) => set("source_url", e.target.value)}
+            placeholder="https://…"
+            type="url"
+          />
+        </label>
       </section>
 
       <details className="nutrition-editor">

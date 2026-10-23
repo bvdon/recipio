@@ -17,6 +17,19 @@ pub enum AppError {
     Migration(#[from] rusqlite_migration::Error),
     #[error("file error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("network error: {0}")]
+    Network(#[from] reqwest::Error),
+    #[error("download error: {0}")]
+    Download(String),
+    #[error("checksum mismatch: {0}")]
+    Checksum(String),
+    #[error("no downloader binaries for this platform")]
+    UnsupportedPlatform,
+    /// A video download problem; `message` is already plain language.
+    #[error("{message}\n{detail}")]
+    Video { message: String, detail: String },
+    #[error("cancelled")]
+    Cancelled,
 }
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -28,10 +41,15 @@ impl AppError {
             AppError::NotFound(_) => "not_found",
             AppError::Database(_) | AppError::Migration(_) => "database",
             AppError::Io(_) => "io",
+            AppError::Network(_) | AppError::Download(_) => "network",
+            AppError::Checksum(_) => "checksum",
+            AppError::UnsupportedPlatform => "unsupported",
+            AppError::Video { .. } => "video",
+            AppError::Cancelled => "cancelled",
         }
     }
 
-    fn user_message(&self) -> String {
+    pub fn user_message(&self) -> String {
         match self {
             AppError::Validation(_) | AppError::NotFound(_) => self.to_string(),
             AppError::Database(_) | AppError::Migration(_) => {
@@ -40,6 +58,17 @@ impl AppError {
             AppError::Io(_) => {
                 "A file could not be read or written. Details are in the log file.".into()
             }
+            AppError::Network(_) | AppError::Download(_) => {
+                "A download failed. Check your internet connection and try again; details are in the log file.".into()
+            }
+            AppError::Checksum(_) => {
+                "A downloaded file failed its integrity check, so it was not used. Please try again.".into()
+            }
+            AppError::UnsupportedPlatform => {
+                "Video downloads aren't available on this kind of computer.".into()
+            }
+            AppError::Video { message, .. } => message.clone(),
+            AppError::Cancelled => "Cancelled.".into(),
         }
     }
 }

@@ -15,6 +15,16 @@ pub enum VideoStatus {
 }
 
 impl VideoStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            VideoStatus::None => "none",
+            VideoStatus::Downloading => "downloading",
+            VideoStatus::Ready => "ready",
+            VideoStatus::Failed => "failed",
+            VideoStatus::Missing => "missing",
+        }
+    }
+
     pub fn parse(s: &str) -> Self {
         match s {
             "downloading" => VideoStatus::Downloading,

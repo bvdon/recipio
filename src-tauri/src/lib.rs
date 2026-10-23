@@ -4,7 +4,10 @@ mod error;
 mod ingredient_parser;
 mod media;
 mod models;
+mod process;
 mod quantity;
+mod tools;
+mod video;
 
 use std::collections::HashSet;
 use std::sync::{Mutex, MutexGuard};
@@ -14,10 +17,14 @@ use tauri::Manager;
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
 use media::MediaDir;
+use tools::Tools;
+use video::Videos;
 
 pub struct AppState {
     db: Mutex<Connection>,
     media: MediaDir,
+    tools: Tools,
+    videos: Videos,
 }
 
 impl AppState {
@@ -68,10 +75,13 @@ pub fn run() {
             let referenced: HashSet<String> =
                 db::recipes::all_media_paths(&conn)?.into_iter().collect();
             media.sweep(&referenced);
+            db::recipes::check_videos(&conn, |rel| media.resolve(rel).is_some())?;
 
             app.manage(AppState {
                 db: Mutex::new(conn),
                 media,
+                tools: Tools::new(&data_dir.join("bin"))?,
+                videos: Videos::default(),
             });
             Ok(())
         })
@@ -89,7 +99,20 @@ pub fn run() {
             commands::merge_labels,
             commands::check_quantity,
             commands::parse_ingredients,
+            commands::check_youtube_url,
+            commands::start_video_download,
+            commands::cancel_video_download,
+            commands::get_video_job,
+            commands::dismiss_video_job,
+            commands::remove_video,
+            commands::tools_status,
+            commands::install_tools,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                process::kill_all();
+            }
+        });
 }
