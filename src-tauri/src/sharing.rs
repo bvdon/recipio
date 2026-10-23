@@ -19,8 +19,6 @@ use crate::models::{Friend, ShareMethod};
 
 /// Outbox files are kept this long, so a mail draft can still find its attachment.
 const OUTBOX_DAYS: u64 = 7;
-/// Where people without Recipio can get it (mentioned in the message text).
-const APP_LINK: &str = "https://github.com/bvdon/recipio";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -167,7 +165,7 @@ pub fn subject(titles: &[String], from: &str) -> String {
 pub fn message(note: &str, format: ShareFormat, count: usize) -> String {
     let hint = match format {
         ShareFormat::Recipio => format!(
-            "Open the attached .recipio file with Recipio to add {} to your recipes ({APP_LINK}).",
+            "Open the attached .recipio file with Recipio to add {} to your recipes.",
             if count == 1 { "it" } else { "them" }
         ),
         ShareFormat::Pdf => String::new(),
@@ -444,7 +442,7 @@ mod tests {
         assert_eq!(subject(&three, ""), "Recipes");
         let text = message("  Try these!  ", ShareFormat::Recipio, 3);
         assert!(text.starts_with("Try these!\n\nOpen the attached .recipio file"));
-        assert!(text.contains("add them"));
+        assert!(text.ends_with("add them to your recipes."));
         assert_eq!(message("", ShareFormat::Pdf, 1), "");
         assert_eq!(
             mailto("sam@example.com", "Recipes from Rob", "Hi & bye"),
