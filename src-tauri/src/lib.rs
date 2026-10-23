@@ -7,6 +7,7 @@ mod ingredient_parser;
 mod jsonld;
 mod media;
 mod models;
+mod pdf;
 mod process;
 mod quantity;
 mod tools;
@@ -146,6 +147,7 @@ pub fn run() {
             commands::add_shared_recipes,
             commands::add_video_bookmark,
             commands::delete_video_bookmark,
+            commands::export_pdf,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

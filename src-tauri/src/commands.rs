@@ -371,6 +371,31 @@ pub async fn delete_video_bookmark(
     bookmarks::list(&conn, &recipe_id)
 }
 
+/// Saves the recipe as a PDF at `path` (chosen in a save dialog) and opens it. Text and
+/// photo only, never the video. `locale` (the UI language, e.g. "en-US") picks Letter or A4.
+#[tauri::command]
+pub async fn export_pdf(app: AppHandle, id: String, path: String, locale: String) -> AppResult<()> {
+    blocking(app, move |app, state| {
+        let recipe = recipes::get(&state.db(), &id)?;
+        let photo = recipe.photo_path.as_deref().and_then(|rel| {
+            let file = state.media.resolve(rel)?;
+            Some(crate::pdf::Photo {
+                ext: file.extension()?.to_str()?.to_ascii_lowercase(),
+                data: std::fs::read(&file).ok()?,
+            })
+        });
+        let bytes = crate::pdf::render(&recipe, photo, &locale)?;
+        std::fs::write(&path, bytes)?;
+        log::info!("saved PDF of {id} to {path}");
+        use tauri_plugin_opener::OpenerExt;
+        if let Err(e) = app.opener().open_path(&path, None::<&str>) {
+            log::warn!("could not open the PDF: {e}");
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// Runs file-heavy work off the async runtime.
 async fn blocking<T: Send + 'static>(
     app: AppHandle,

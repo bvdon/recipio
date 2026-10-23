@@ -303,6 +303,24 @@ structured data, say so and keep just the URL.
 - A share file can't be used with Restore (that needs a full backup), so a friend's file
   can never replace a library.
 
+### Recipe PDF (owner request after Phase 6)
+
+- Recipe page → **PDF** (printer icon) → save dialog → `export_pdf` writes the file and
+  opens it in the default viewer. Rust `pdf.rs`: `krilla` writes the PDF (pure Rust,
+  embeds JPEG/PNG/WebP/GIF; AVIF photos are left out); the layout (word wrap, page
+  breaks, keeping headings with what follows) is done in `pdf.rs`, measuring text with
+  `rustybuzz` (krilla's own shaper) so wrapped lines fit.
+- Content: title, servings/prep/cook/rating, categories and tags, description, photo
+  (≤ 260 pt tall), ingredients (section headings, bullets), numbered steps with hanging
+  indent, notes, nutrition, source URL; footer "title · Page n of m". **Never the video**:
+  no file, no YouTube link, no bookmarks (Q24).
+- Paper: US Letter for US/CA/MX/PH/PR/CL/CO/VE locales (from the UI's
+  `navigator.language`), A4 otherwise.
+- Font: Noto Sans Regular/Bold bundled in `src-tauri/assets/fonts/` (SIL OFL 1.1,
+  license file alongside; credit it in the README). krilla subsets it into each PDF.
+- Live check: `RECIPIO_PDF_DB=<db copy> RECIPIO_PDF_MEDIA=<media dir> RECIPIO_PDF_ID=<id>
+RECIPIO_PDF_OUT=<file.pdf> cargo test -- --ignored live_pdf`.
+
 ### Other
 
 - Screen wake in cooking mode: `keepawake` crate (IOKit / SetThreadExecutionState /
@@ -393,3 +411,4 @@ test instructions for the owner, and a stop for approval.
 | Q21 | Video bookmarks                                                                     | Optional label; max 12; cleared when the YouTube link changes to another video; managed on the recipe page                              |
 | Q22 | Share file format                                                                   | `.recipio` = backup zip layout, format `recipio-share`, chosen recipes, no ratings; videos optional (off by default)                    |
 | Q23 | Importing a recipe that already exists                                              | Never overwrite: unticked by default; if ticked, added as a copy with a new id                                                          |
+| Q24 | Recipe PDF                                                                          | Generated in Rust (krilla + Noto Sans), opened after saving; never includes the video, its link or bookmarks; Letter/A4 by locale       |

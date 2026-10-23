@@ -47,6 +47,8 @@ scraper = "0.29"
 url = "2.5.8"
 encoding_rs = "0.8.42"
 keepawake = "0.6.1"
+krilla = "0.8.2"
+rustybuzz = "0.20.1"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

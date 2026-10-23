@@ -65,6 +65,8 @@ export const api = {
     invoke<number>("add_shared_recipes", { path, ids }),
   addVideoBookmark: (recipeId: string, time: string, label: string, duration: number | null) =>
     invoke<VideoBookmark[]>("add_video_bookmark", { recipeId, time, label, duration }),
+  exportPdf: (id: string, path: string, locale: string) =>
+    invoke<void>("export_pdf", { id, path, locale }),
   deleteVideoBookmark: (recipeId: string, id: number) =>
     invoke<VideoBookmark[]>("delete_video_bookmark", { recipeId, id }),
 };

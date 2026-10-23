@@ -8,7 +8,7 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 1. `PROMPT.md` — the owner's original build brief (requirements, phases, quality bar).
    Local only, gitignored (contains personal details); if missing, `docs/PLAN.md` covers it.
-2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q23).
+2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q24).
 3. "Current status" below.
 
 ## Working rules (from the brief)
@@ -84,7 +84,8 @@ Phase 6b (owner request before Phase 7): video bookmarks (migration 0002,
 `db/bookmarks.rs`, chips + Add bookmark under the player on the recipe page) and sharing
 (`/share` writes a `.recipio` file of chosen recipes via `backup::export(Kind::Share)`;
 `/share/import` previews and adds recipes via `backup::add_shared`, never overwriting).
-Design: PLAN.md §3 "Video bookmarks" and "Sharing recipes".
+Design: PLAN.md §3 "Video bookmarks" and "Sharing recipes". Also a **PDF** button on the
+recipe page (`pdf.rs`: krilla + bundled Noto Sans, never the video; PLAN.md §3 "Recipe PDF").
 
 ## Environment / gotchas
 
@@ -122,6 +123,7 @@ Design: PLAN.md §3 "Video bookmarks" and "Sharing recipes".
 - `src-tauri/src/duration.rs` — ISO 8601 (and plain-text) durations → minutes.
 - `src-tauri/src/backup.rs` — library zip export/restore (`recipio-backup.json` + media), progress events; also share files (`Kind::Share`, `preview`, `add_shared`).
 - `src-tauri/src/db/bookmarks.rs` — video bookmarks (≤ 12 per recipe, time order).
+- `src-tauri/src/pdf.rs` — recipe → PDF (layout + krilla drawing); fonts in `src-tauri/assets/fonts/` (OFL).
 - `src-tauri/src/models.rs` — shared types (ts-rs exported).
 - `src-tauri/src/error.rs` — `AppError` → `{ kind, message }`, logs detail on serialize.
 - `src/api.ts` — typed `invoke` wrappers, `mediaUrl()`, query keys.

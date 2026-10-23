@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { ask, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
   CookingPot,
   ExternalLink,
   Pencil,
+  Printer,
   Trash2,
   Users,
   X,
@@ -46,6 +47,20 @@ export default function RecipeView() {
     },
   });
 
+  // Saves a PDF (text and photo, never the video) and opens it.
+  const pdf = useMutation({
+    mutationFn: (path: string) => api.exportPdf(id, path, navigator.language),
+  });
+
+  const savePdf = async (r: Recipe) => {
+    const name = r.title.replace(/[\\/:*?"<>|]/g, "").trim() || "Recipe";
+    const path = await save({
+      defaultPath: `${name}.pdf`,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (path) pdf.mutate(path);
+  };
+
   const confirmDelete = async (r: Recipe) => {
     const hasFiles = r.photo_path !== null || r.video_path !== null;
     const ok = await ask(
@@ -74,12 +89,22 @@ export default function RecipeView() {
           <Link to={`/recipes/${r.id}/edit`} className="button">
             <Pencil size={16} aria-hidden /> Edit
           </Link>
+          <button
+            type="button"
+            className="button"
+            disabled={pdf.isPending}
+            onClick={() => void savePdf(r)}
+            title="Save as a PDF to print or share (without the video)"
+          >
+            <Printer size={16} aria-hidden /> PDF
+          </button>
           <button className="button danger" onClick={() => void confirmDelete(r)}>
             <Trash2 size={16} aria-hidden /> Delete
           </button>
         </div>
       </div>
       {remove.isError && <ErrorBanner message={errorMessage(remove.error)} />}
+      {pdf.isError && <ErrorBanner message={errorMessage(pdf.error)} />}
 
       <header className="recipe-header">
         {r.photo_path && <img className="hero" src={mediaUrl(r.photo_path, r.updated_at)} alt="" />}
