@@ -384,19 +384,66 @@ CSS modules. No UI framework. Type-ahead pickers are a small custom combobox.
 Each phase ends with: clippy + fmt + eslint + prettier clean, tests passing, a git commit,
 test instructions for the owner, and a stop for approval.
 
-### Phase 8 (planned): Friends
+### Phase 8 (design, awaiting approval): Friends
 
-Owner decision Q25. Friends use macOS and Windows; no servers, so recipes travel through
-services people already use. Design to be written up for approval before coding; outline:
+Owner decision Q25: no servers, no in-app chat; recipes travel through services people
+already use. Friends use macOS and Windows.
 
-- A Friends list in the app (name + phone/email, or picked from Contacts), stored locally.
-- "Share with… <friend>" for one recipe, a selection or the whole book: build the
-  `.recipio` file, then hand it to the OS share UI with the friend as recipient —
-  macOS `NSSharingService` (Messages, Mail, AirDrop), Windows share UI / Mail; fallback
-  "show file". Videos off by default (message size limits).
-- `.recipio` file association: opening an attachment launches Recipio on the import
-  screen. Imported recipes remember who shared them; the Friends page lists what was sent
-  and received (local only).
+**How a recipe gets to a friend**
+
+| You're on | Friend's method | What happens                                                                                 |
+| --------- | --------------- | -------------------------------------------------------------------------------------------- |
+| macOS     | Messages        | Messages opens a new message to the friend with the `.recipio` file attached; you type, send |
+| macOS     | Email           | Mail opens a new email to the friend, subject "Recipes from <you>", file attached            |
+| macOS     | (any)           | "Other…" opens the system share menu (AirDrop, Mail, Messages, Notes…)                       |
+| Windows   | Email or other  | the Windows share panel opens with the file (Outlook, Phone Link, Nearby sharing, WhatsApp…) |
+| any       | fallback        | "Save file…" / "Show in Finder/Explorer" (e.g. Gmail in a browser: attach it yourself)       |
+
+Messages only reaches Apple devices, so Windows friends are set to Email. The Windows
+share panel can't pre-fill a recipient, so on Windows the friend's address is copied to
+the clipboard to paste. macOS uses `NSSharingService` (Messages/Mail with recipients and
+attachment) via `objc2-app-kit`; Windows uses `DataTransferManager` via the `windows`
+crate. Both run on the main thread. Files are written to `<app_data>/outbox/` (kept 7
+days, so a Mail draft can still find its attachment).
+
+**How a friend receives it**
+
+- `.recipio` is registered with Recipio (bundle `fileAssociations`; a macOS exported type).
+  Clicking the attachment in Messages/Mail/Explorer opens Recipio straight on _Import
+  shared recipes_ with that file loaded. macOS delivers it as an "opened" event; on Windows
+  the file arrives as a launch argument, and `tauri-plugin-single-instance` hands it to the
+  already-running app.
+- The import screen shows who it's from and their note ("From Sam: try the curry!").
+
+**In the app**
+
+- Top bar: one **Friends** button replaces _Share recipes_ / _Import shared recipes_.
+- `/friends`: your friends (name, Messages or Email, phone/email); add/edit/remove; under
+  each friend, what you sent them and what they sent you (date, recipe titles). Buttons:
+  _Share recipes…_ (the existing picker, now ending in "Send to <friend> / Other… / Save
+  file…"), _Share the whole book_, _Import a file…_.
+- Recipe page: **Share** button (next to PDF) → menu of friends + "Other…" for that recipe.
+- Received recipes remember the sender: a "From Sam" chip on the recipe page.
+- Settings: **Your name** (shown to friends in files you send), asked the first time you share.
+
+**Data**: migration 0003 — `friends` (id, name, method `messages|email`, address,
+created_at), `share_log` (id, friend_id null, direction `sent|received`, sender name,
+recipe titles JSON, file name, at), `recipes.shared_by` (TEXT, null). Share manifest
+gains optional `from` and `note` (older app versions ignore them). Friends and the log
+are local; they're included in backups.
+
+**Size**: email providers cap attachments around 20–25 MB, Messages around 100 MB. Share
+files keep photos small (resized to ≤ 1600 px JPEG, typically 200–400 KB; backups keep
+originals); videos stay off by default. The picker shows the file size and warns above
+20 MB for email ("send fewer recipes, or use AirDrop / Save file").
+
+**Not included**: in-app chat, contacts import (manual entry for now), syncing, read
+receipts, Linux-native sharing (Linux gets Save file / Show in folder).
+
+**Testing**: Rust unit tests for the friends/log tables, manifest `from`/`note`, photo
+resizing and the file-open routing. The macOS share sheets need the owner (UI). Windows
+sharing and file opening compile in CI but stay untested until a Windows machine is
+available.
 
 ## 6. Open questions / decisions log
 
