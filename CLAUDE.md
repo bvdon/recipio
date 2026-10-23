@@ -26,17 +26,17 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 ## Current status
 
-| Phase                   | State                 |
-| ----------------------- | --------------------- |
-| 1 Foundation            | done, approved        |
-| 2 Organize              | done, approved        |
-| 3 Ingredients plus      | done, approved        |
-| 4 Video                 | done, approved        |
-| 5 Web import            | done, approved        |
-| 6 Cooking mode + backup | done, approved        |
-| 6b Bookmarks + sharing  | done, approved        |
-| 7 Packaging             | in progress           |
-| 8 Friends (option 3)    | planned (PLAN.md Q25) |
+| Phase                   | State                   |
+| ----------------------- | ----------------------- |
+| 1 Foundation            | done, approved          |
+| 2 Organize              | done, approved          |
+| 3 Ingredients plus      | done, approved          |
+| 4 Video                 | done, approved          |
+| 5 Web import            | done, approved          |
+| 6 Cooking mode + backup | done, approved          |
+| 6b Bookmarks + sharing  | done, approved          |
+| 7 Packaging             | done, awaiting approval |
+| 8 Friends (option 3)    | planned (PLAN.md Q25)   |
 
 Phase 1 delivered: scaffold, migration 0001 (full schema incl. categories/tags/FTS),
 recipe CRUD commands, photo staging/commit, `recipio-media://` protocol with Range
