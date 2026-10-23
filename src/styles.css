@@ -263,7 +263,8 @@ select {
   width: auto;
   cursor: pointer;
 }
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   width: auto;
   accent-color: var(--accent);
 }
@@ -1588,6 +1589,7 @@ button.link.small {
 .share-dialog {
   width: min(560px, calc(100vw - 3rem));
   max-height: calc(100vh - 3rem);
+  overflow-x: hidden;
   padding: 1.25rem 1.5rem;
   color: var(--text);
   background: var(--surface);
@@ -1626,7 +1628,13 @@ button.link.small {
   cursor: pointer;
 }
 .radio input {
+  flex: none;
+  margin: 0;
   accent-color: var(--accent);
+}
+.radio > span {
+  flex: 1;
+  min-width: 0;
 }
 .share-done p {
   margin: 0 0 0.5rem;
