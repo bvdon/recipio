@@ -8,7 +8,7 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 1. `PROMPT.md` — the owner's original build brief (requirements, phases, quality bar).
    Local only, gitignored (contains personal details); if missing, `docs/PLAN.md` covers it.
-2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q24).
+2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q25).
 3. "Current status" below.
 
 ## Working rules (from the brief)
@@ -26,16 +26,17 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 ## Current status
 
-| Phase                   | State                   |
-| ----------------------- | ----------------------- |
-| 1 Foundation            | done, approved          |
-| 2 Organize              | done, approved          |
-| 3 Ingredients plus      | done, approved          |
-| 4 Video                 | done, approved          |
-| 5 Web import            | done, approved          |
-| 6 Cooking mode + backup | done, approved          |
-| 6b Bookmarks + sharing  | done, awaiting approval |
-| 7 Packaging             | not started             |
+| Phase                   | State                 |
+| ----------------------- | --------------------- |
+| 1 Foundation            | done, approved        |
+| 2 Organize              | done, approved        |
+| 3 Ingredients plus      | done, approved        |
+| 4 Video                 | done, approved        |
+| 5 Web import            | done, approved        |
+| 6 Cooking mode + backup | done, approved        |
+| 6b Bookmarks + sharing  | done, approved        |
+| 7 Packaging             | in progress           |
+| 8 Friends (option 3)    | planned (PLAN.md Q25) |
 
 Phase 1 delivered: scaffold, migration 0001 (full schema incl. categories/tags/FTS),
 recipe CRUD commands, photo staging/commit, `recipio-media://` protocol with Range
@@ -103,6 +104,9 @@ recipe page (`pdf.rs`: krilla + bundled Noto Sans, never the video; PLAN.md §3 
 
 - Dev: `npm run tauri dev`
 - macOS installer: `npm run dmg` (release build → copies the DMG to the project root, replacing the old one)
+- CI: `.github/workflows/ci.yml` (frontend checks + cargo fmt/clippy/test on macOS, Windows, Linux).
+  Release: `.github/workflows/release.yml` — a `v*` tag creates a draft release with universal DMG,
+  NSIS/MSI, AppImage/deb; manual runs only upload workflow artifacts. `gh run list` / `gh run view`.
 - Rust tests (also regenerates `src/bindings/*.ts`): `cd src-tauri && cargo test`
 - Rust lint: `cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo fmt --check`
 - Frontend: `npx tsc --noEmit && npm run lint && npm run format:check` (`npm run format` to fix)
