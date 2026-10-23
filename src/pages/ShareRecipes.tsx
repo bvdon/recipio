@@ -1,20 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
-import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
-import { listen } from "@tauri-apps/api/event";
-import { save } from "@tauri-apps/plugin-dialog";
-import { ArrowLeft, Search, Share2, Video, X } from "lucide-react";
-import { api, errorMessage, events, mediaUrl, queryKeys } from "../api";
-import type { BackupProgress } from "../bindings/BackupProgress";
+import { useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowLeft, Search, Send, Video } from "lucide-react";
+import { api, errorMessage, mediaUrl, queryKeys } from "../api";
 import type { RecipeQuery } from "../bindings/RecipeQuery";
-import {
-  ErrorBanner,
-  fileName,
-  formatBytes,
-  isCancelled,
-  PhotoPlaceholder,
-  plural,
-} from "../components/common";
+import type { RecipeSummary } from "../bindings/RecipeSummary";
+import { ErrorBanner, PhotoPlaceholder, plural } from "../components/common";
+import ShareDialog from "../components/ShareDialog";
 
 const ALL: RecipeQuery = {
   search: "",
@@ -24,54 +16,58 @@ const ALL: RecipeQuery = {
   descending: false,
 };
 
-/** Pick recipes and save them to a `.recipio` file another Recipio user can import. */
+/**
+ * Pick recipes to send to a friend (or save). `?all=1` starts with every recipe ticked
+ * ("share the whole book"); `?friend=<id>` preselects who to send to.
+ */
 export default function ShareRecipes() {
   const recipes = useQuery({
     queryKey: queryKeys.recipeList(ALL),
     queryFn: () => api.listRecipes(ALL),
   });
+  const [params] = useSearchParams();
+  const friend = Number(params.get("friend")) || null;
+
+  return (
+    <div className="share-page">
+      <div className="toolbar">
+        <Link to="/friends" className="button ghost">
+          <ArrowLeft size={16} aria-hidden /> Friends
+        </Link>
+      </div>
+      <h1>Share recipes</h1>
+      <p className="muted">
+        Choose recipes, then send them to a friend — as a Recipio file they can add to their
+        library, or as a PDF anyone can read. Photos, notes and video bookmarks go along; your star
+        ratings don’t.
+      </p>
+      {recipes.isError && <ErrorBanner message={errorMessage(recipes.error)} />}
+      {recipes.data && (
+        <Picker recipes={recipes.data} all={params.get("all") === "1"} friend={friend} />
+      )}
+    </div>
+  );
+}
+
+function Picker({
+  recipes,
+  all,
+  friend,
+}: {
+  recipes: RecipeSummary[];
+  all: boolean;
+  friend: number | null;
+}) {
   const [filter, setFilter] = useState("");
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [includeVideos, setIncludeVideos] = useState(false);
-  const [progress, setProgress] = useState<BackupProgress | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(
+    () => new Set(all ? recipes.map((r) => r.id) : []),
+  );
+  const [sharing, setSharing] = useState(false);
 
   const shown = useMemo(() => {
     const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
-    return (recipes.data ?? []).filter((r) =>
-      words.every((w) => r.title.toLowerCase().includes(w)),
-    );
-  }, [recipes.data, filter]);
-
-  const ids = useMemo(() => [...selected].sort(), [selected]);
-  const stats = useQuery({
-    queryKey: [...queryKeys.libraryStats, ids],
-    queryFn: () => api.libraryStats(ids),
-    enabled: ids.length > 0,
-    placeholderData: keepPreviousData,
-  });
-
-  useEffect(() => {
-    const unlisten = listen<BackupProgress>(events.backupProgress, (e) => setProgress(e.payload));
-    return () => void unlisten.then((stop) => stop());
-  }, []);
-
-  const share = useMutation({
-    mutationFn: ({ path, videos }: { path: string; videos: boolean }) =>
-      api.shareRecipes(path, ids, videos),
-    onMutate: () => {
-      setResult(null);
-      setProgress(null);
-    },
-    onSuccess: (_, { path }) =>
-      setResult(
-        `Saved ${fileName(path)}. Send it to your friend; they add it with “Import shared recipes”.`,
-      ),
-    onError: (e) => {
-      if (isCancelled(e)) setResult("Cancelled.");
-    },
-    onSettled: () => setProgress(null),
-  });
+    return recipes.filter((r) => words.every((w) => r.title.toLowerCase().includes(w)));
+  }, [recipes, filter]);
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -79,7 +75,6 @@ export default function ShareRecipes() {
       if (!next.delete(id)) next.add(id);
       return next;
     });
-
   const allShown = shown.length > 0 && shown.every((r) => selected.has(r.id));
   const toggleShown = () =>
     setSelected((s) => {
@@ -91,36 +86,8 @@ export default function ShareRecipes() {
       return next;
     });
 
-  const start = async () => {
-    const first = recipes.data?.find((r) => r.id === ids[0])?.title;
-    const name =
-      ids.length === 1 && first ? first.replace(/[\\/:*?"<>|]/g, "") : `${ids.length} recipes`;
-    const path = await save({
-      defaultPath: `${name}.recipio`,
-      filters: [{ name: "Recipio recipes", extensions: ["recipio"] }],
-    });
-    if (path) share.mutate({ path, videos: includeVideos && (stats.data?.videos ?? 0) > 0 });
-  };
-
-  const s = ids.length > 0 ? stats.data : undefined;
-  const error = share.isError && !isCancelled(share.error) ? errorMessage(share.error) : null;
-
   return (
-    <div className="share-page">
-      <div className="toolbar">
-        <Link to="/" className="button ghost">
-          <ArrowLeft size={16} aria-hidden /> Recipes
-        </Link>
-      </div>
-      <h1>Share recipes</h1>
-      <p className="muted">
-        Choose recipes to save in a file you can send to a friend who uses Recipio (by email,
-        AirDrop, a USB stick…). They add it with <strong>Import shared recipes</strong>. Photos,
-        notes and video bookmarks go along; your star ratings don’t.
-      </p>
-
-      {recipes.isError && <ErrorBanner message={errorMessage(recipes.error)} />}
-
+    <>
       <div className="share-controls">
         <div className="search">
           <Search size={16} aria-hidden />
@@ -158,63 +125,31 @@ export default function ShareRecipes() {
             </label>
           </li>
         ))}
-        {recipes.data && shown.length === 0 && (
+        {shown.length === 0 && (
           <li className="muted empty">
-            {recipes.data.length ? "No recipes match." : "No recipes yet."}
+            {recipes.length ? "No recipes match." : "No recipes yet."}
           </li>
         )}
       </ul>
 
       <div className="share-footer">
-        <div>
-          {s ? (
-            <>
-              {plural(s.recipes, "recipe")}, {plural(s.photos, "photo")} (
-              {formatBytes(s.photo_bytes)})
-              {s.videos > 0 && (
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={includeVideos}
-                    disabled={share.isPending}
-                    onChange={(e) => setIncludeVideos(e.target.checked)}
-                  />
-                  Include {plural(s.videos, "downloaded video")} ({formatBytes(s.video_bytes)}) —
-                  otherwise your friend can download them from the YouTube links
-                </label>
-              )}
-            </>
-          ) : (
-            <span className="muted">Select the recipes to share.</span>
-          )}
-        </div>
+        <span className="muted">
+          {selected.size
+            ? plural(selected.size, "recipe") + " selected"
+            : "Select the recipes to share."}
+        </span>
         <button
           type="button"
           className="button primary"
-          disabled={ids.length === 0 || share.isPending}
-          onClick={() => void start()}
+          disabled={selected.size === 0}
+          onClick={() => setSharing(true)}
         >
-          <Share2 size={16} aria-hidden /> Save share file…
+          <Send size={16} aria-hidden /> Share…
         </button>
       </div>
-
-      {share.isPending && (
-        <div className="video-status" aria-live="polite">
-          <div className="video-progress-head">
-            <span>Saving…</span>
-            <button type="button" className="button small" onClick={() => void api.cancelBackup()}>
-              <X size={14} aria-hidden /> Cancel
-            </button>
-          </div>
-          {progress && progress.total > 0 ? (
-            <progress max={progress.total} value={progress.done} aria-label="Progress" />
-          ) : (
-            <progress aria-label="Progress" />
-          )}
-        </div>
+      {sharing && (
+        <ShareDialog ids={[...selected]} friendId={friend} onClose={() => setSharing(false)} />
       )}
-      {result && <p className="hint">{result}</p>}
-      {error && <ErrorBanner message={error} />}
-    </div>
+    </>
   );
 }

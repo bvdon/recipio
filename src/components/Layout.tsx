@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useNavigate } from "react-router";
-import { ChefHat, FileDown, Globe, Plus, Settings, Share2 } from "lucide-react";
+import { ChefHat, Globe, Plus, Settings, Users } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import { api, events } from "../api";
 import ImportRecipeDialog from "./ImportRecipeDialog";
 
 export default function Layout() {
@@ -19,6 +21,19 @@ export default function Layout() {
     return () => window.removeEventListener("keydown", onKey);
   }, [navigate]);
 
+  // A .recipio file opened from Finder, Explorer or a Messages/Mail attachment goes
+  // straight to the import screen (queued in Rust if it arrived before the UI was ready).
+  useEffect(() => {
+    const openFile = (file: string | undefined) => {
+      if (file) navigate(`/share/import?file=${encodeURIComponent(file)}`);
+    };
+    void api.takeOpenedFiles().then((files) => openFile(files[files.length - 1]));
+    const unlisten = listen<string[]>(events.openFiles, () => {
+      void api.takeOpenedFiles().then((files) => openFile(files[files.length - 1]));
+    });
+    return () => void unlisten.then((stop) => stop());
+  }, [navigate]);
+
   return (
     <div className="app">
       <header className="topbar">
@@ -30,17 +45,9 @@ export default function Layout() {
           <Link to="/settings" className="button ghost icon" title="Settings" aria-label="Settings">
             <Settings size={18} aria-hidden />
           </Link>
-          <Link to="/share" className="button" title="Save chosen recipes in a file for a friend">
-            <Share2 size={16} aria-hidden />
-            Share recipes
-          </Link>
-          <Link
-            to="/share/import"
-            className="button"
-            title="Add recipes from a .recipio file a friend shared"
-          >
-            <FileDown size={16} aria-hidden />
-            Import shared recipes
+          <Link to="/friends" className="button" title="Share recipes with friends">
+            <Users size={16} aria-hidden />
+            Friends
           </Link>
           <button type="button" className="button" onClick={() => setImporting(true)}>
             <Globe size={16} aria-hidden />

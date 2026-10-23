@@ -7,6 +7,7 @@ import { api, errorMessage, events, queryKeys } from "../api";
 import type { BackupProgress } from "../bindings/BackupProgress";
 import type { ToolProgress } from "../bindings/ToolProgress";
 import { ErrorBanner, fileName, formatBytes, isCancelled, plural } from "../components/common";
+import MyName from "../components/MyName";
 
 export default function Settings() {
   return (
@@ -14,6 +15,10 @@ export default function Settings() {
       <div className="toolbar">
         <h1>Settings</h1>
       </div>
+      <section>
+        <h2>Sharing</h2>
+        <MyName />
+      </section>
       <BackupSection />
       <VideoToolsSection />
     </div>

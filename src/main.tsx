@@ -12,6 +12,7 @@ import Settings from "./pages/Settings";
 import CookingMode from "./pages/CookingMode";
 import ShareRecipes from "./pages/ShareRecipes";
 import ImportShared from "./pages/ImportShared";
+import Friends from "./pages/Friends";
 import "./styles.css";
 
 window.addEventListener("error", (e) => void logError(`ui: ${e.message}`));
@@ -36,6 +37,7 @@ const router = createHashRouter([
       { path: "recipes/:id/edit", element: <RecipeEditor /> },
       { path: "organize", element: <Organize /> },
       { path: "settings", element: <Settings /> },
+      { path: "friends", element: <Friends /> },
       { path: "share", element: <ShareRecipes /> },
       { path: "share/import", element: <ImportShared /> },
     ],

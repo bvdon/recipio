@@ -1,4 +1,5 @@
 pub mod bookmarks;
+pub mod friends;
 pub mod labels;
 pub mod recipes;
 
@@ -13,6 +14,7 @@ fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
         M::up(include_str!("../../migrations/0001_init.sql")),
         M::up(include_str!("../../migrations/0002_video_bookmarks.sql")),
+        M::up(include_str!("../../migrations/0003_friends.sql")),
     ])
 }
 

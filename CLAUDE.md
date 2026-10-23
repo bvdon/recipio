@@ -8,7 +8,7 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 1. `PROMPT.md` — the owner's original build brief (requirements, phases, quality bar).
    Local only, gitignored (contains personal details); if missing, `docs/PLAN.md` covers it.
-2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q25).
+2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q26).
 3. "Current status" below.
 
 ## Working rules (from the brief)
@@ -26,17 +26,17 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 ## Current status
 
-| Phase                   | State                   |
-| ----------------------- | ----------------------- |
-| 1 Foundation            | done, approved          |
-| 2 Organize              | done, approved          |
-| 3 Ingredients plus      | done, approved          |
-| 4 Video                 | done, approved          |
-| 5 Web import            | done, approved          |
-| 6 Cooking mode + backup | done, approved          |
-| 6b Bookmarks + sharing  | done, approved          |
-| 7 Packaging             | done, awaiting approval |
-| 8 Friends (option 3)    | planned (PLAN.md Q25)   |
+| Phase                   | State                             |
+| ----------------------- | --------------------------------- |
+| 1 Foundation            | done, approved                    |
+| 2 Organize              | done, approved                    |
+| 3 Ingredients plus      | done, approved                    |
+| 4 Video                 | done, approved                    |
+| 5 Web import            | done, approved                    |
+| 6 Cooking mode + backup | done, approved                    |
+| 6b Bookmarks + sharing  | done, approved                    |
+| 7 Packaging             | done, approved (Windows untested) |
+| 8 Friends (option 3)    | done, awaiting approval           |
 
 Phase 1 delivered: scaffold, migration 0001 (full schema incl. categories/tags/FTS),
 recipe CRUD commands, photo staging/commit, `recipio-media://` protocol with Range
@@ -88,6 +88,15 @@ Phase 6b (owner request before Phase 7): video bookmarks (migration 0002,
 Design: PLAN.md §3 "Video bookmarks" and "Sharing recipes". Also a **PDF** button on the
 recipe page (`pdf.rs`: krilla + bundled Noto Sans, never the video; PLAN.md §3 "Recipe PDF").
 
+Phase 8 delivered: Friends (`/friends`, migration 0003: `friends`, `share_log`,
+`settings`, `recipes.shared_by`; `db/friends.rs`), the Share dialog (friend / Other… /
+file; Recipio file or PDF; note) with `sharing.rs` handing files to Messages/Mail
+(`NSSharingService`) or the share menu on macOS and a `mailto:` draft + revealed file
+elsewhere; share files carry `from`/`note` and smaller photos; `.recipio` file association
+
+- single-instance plugin open attachments on the import screen. Design: PLAN.md §3
+  "Phase 8 (as built)".
+
 ## Environment / gotchas
 
 - Dev machine: macOS arm64, rustc 1.98, node 25, npm 11 (no pnpm — use npm).
@@ -127,11 +136,13 @@ recipe page (`pdf.rs`: krilla + bundled Noto Sans, never the video; PLAN.md §3 
 - `src-tauri/src/duration.rs` — ISO 8601 (and plain-text) durations → minutes.
 - `src-tauri/src/backup.rs` — library zip export/restore (`recipio-backup.json` + media), progress events; also share files (`Kind::Share`, `preview`, `add_shared`).
 - `src-tauri/src/db/bookmarks.rs` — video bookmarks (≤ 12 per recipe, time order).
+- `src-tauri/src/db/friends.rs` — friends, share history, settings (`my_name`).
+- `src-tauri/src/sharing.rs` — share targets, outbox, file names/messages, macOS `NSSharingService`/picker, `mailto:` fallback, `.recipio` launch-argument parsing.
 - `src-tauri/src/pdf.rs` — recipe → PDF (layout + krilla drawing); fonts in `src-tauri/assets/fonts/` (OFL).
 - `src-tauri/src/models.rs` — shared types (ts-rs exported).
 - `src-tauri/src/error.rs` — `AppError` → `{ kind, message }`, logs detail on serialize.
 - `src/api.ts` — typed `invoke` wrappers, `mediaUrl()`, query keys.
-- `src/pages/` — `Library`, `RecipeView`, `RecipeEditor`, `Organize`, `Settings`, `CookingMode`, `ShareRecipes`, `ImportShared`. `src/components/` — editors, `LabelPicker`, `SortableList`, common bits.
+- `src/pages/` — `Library`, `RecipeView`, `RecipeEditor`, `Organize`, `Settings`, `CookingMode`, `ShareRecipes`, `ImportShared`, `Friends`. `ShareDialog` is the one place recipes are sent from. `src/components/` — editors, `LabelPicker`, `SortableList`, common bits.
 
 ## Conventions
 
@@ -150,12 +161,13 @@ recipe page (`pdf.rs`: krilla + bundled Noto Sans, never the video; PLAN.md §3 
   into `quantity`/`quantity_max` (REAL) and returns `ValidRecipe`. Output lines carry
   Rust-formatted `quantity_text` — the UI never formats numbers itself. Live check uses
   `check_quantity` (returns bool, so bad keystrokes don't log errors).
-- Hash routing (`createHashRouter`); routes: `/`, `/recipes/new`, `/recipes/:id`, `/recipes/:id/edit`, `/recipes/:id/cook` (outside the layout), `/organize`, `/settings`, `/share`, `/share/import`.
+- Hash routing (`createHashRouter`); routes: `/`, `/recipes/new`, `/recipes/:id`, `/recipes/:id/edit`, `/recipes/:id/cook` (outside the layout), `/organize`, `/settings`, `/friends`, `/share` (`?all=1`, `?friend=<id>`), `/share/import` (`?file=<path>`).
 - Video: `save_recipe` never touches video fields; the job writes them when it finishes
   (and `save_recipe` links a file that finished before the first save). The UI combines
   the saved `video_status` with the live job (`useVideoDownload`). A finished job marks
   the recipe query stale with `refetchType: "none"` so an open editor isn't reset.
-- App data also has `bin/` (tools + `tools.json` + `cache/` + `tmp/`).
+- App data also has `bin/` (tools + `tools.json` + `cache/` + `tmp/`) and `outbox/` (files
+  handed to Messages/Mail; pruned after 7 days at startup).
 - Web import never saves: the result travels as router state (`ImportState`) to
   `/recipes/new`, whose form starts from it (so it's "unsaved"). The new-recipe id query is
   keyed by `location.key`, so each visit to `/recipes/new` gets a fresh id.

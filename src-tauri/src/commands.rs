@@ -5,14 +5,17 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::AppState;
-use crate::backup::{self, BackupSummary, Kind, LibraryStats, SharePreview};
-use crate::db::{bookmarks, labels, recipes};
+use crate::backup::{self, BackupSummary, ExportOptions, Kind, LibraryStats, SharePreview};
+use crate::db::{bookmarks, friends, labels, recipes};
 use crate::error::{AppError, AppResult};
+use crate::models::{
+    Friend, FriendInput, ShareDirection, ShareLogEntry, VideoBookmark, VideoStatus,
+};
 use crate::models::{
     Label, LabelKind, PhotoChange, Recipe, RecipeInput, RecipeQuery, RecipeSummary, WebImport,
 };
-use crate::models::{VideoBookmark, VideoStatus};
 use crate::quantity;
+use crate::sharing::{self, ShareFormat, ShareOutcome, ShareTarget};
 use crate::tools::{Package, ToolInfo};
 use crate::video::{self, VideoJob};
 use crate::web_import;
@@ -262,9 +265,7 @@ pub async fn export_backup(app: AppHandle, path: String, include_videos: bool) -
         backup::export(
             state,
             Path::new(&path),
-            Kind::Backup,
-            None,
-            include_videos,
+            &ExportOptions::backup(include_videos),
             &|p| {
                 let _ = app.emit(backup::EVENT, p);
             },
@@ -295,29 +296,6 @@ pub async fn restore_backup(app: AppHandle, path: String) -> AppResult<u32> {
         backup::restore(state, Path::new(&path), &|p| {
             let _ = app.emit(backup::EVENT, p);
         })
-    })
-    .await
-}
-
-/// Saves the chosen recipes to a `.recipio` file for another Recipio user.
-#[tauri::command]
-pub async fn share_recipes(
-    app: AppHandle,
-    path: String,
-    ids: Vec<String>,
-    include_videos: bool,
-) -> AppResult<()> {
-    blocking(app, move |app, state| {
-        backup::export(
-            state,
-            Path::new(&path),
-            Kind::Share,
-            Some(&ids),
-            include_videos,
-            &|p| {
-                let _ = app.emit(backup::EVENT, p);
-            },
-        )
     })
     .await
 }
@@ -377,13 +355,7 @@ pub async fn delete_video_bookmark(
 pub async fn export_pdf(app: AppHandle, id: String, path: String, locale: String) -> AppResult<()> {
     blocking(app, move |app, state| {
         let recipe = recipes::get(&state.db(), &id)?;
-        let photo = recipe.photo_path.as_deref().and_then(|rel| {
-            let file = state.media.resolve(rel)?;
-            Some(crate::pdf::Photo {
-                ext: file.extension()?.to_str()?.to_ascii_lowercase(),
-                data: std::fs::read(&file).ok()?,
-            })
-        });
+        let photo = pdf_photo(state, &recipe);
         let bytes = crate::pdf::render(&recipe, photo, &locale)?;
         std::fs::write(&path, bytes)?;
         log::info!("saved PDF of {id} to {path}");
@@ -394,6 +366,192 @@ pub async fn export_pdf(app: AppHandle, id: String, path: String, locale: String
         Ok(())
     })
     .await
+}
+
+fn pdf_photo(state: &AppState, recipe: &crate::models::Recipe) -> Option<crate::pdf::Photo> {
+    let file = state.media.resolve(recipe.photo_path.as_deref()?)?;
+    Some(crate::pdf::Photo {
+        ext: file.extension()?.to_str()?.to_ascii_lowercase(),
+        data: std::fs::read(&file).ok()?,
+    })
+}
+
+#[tauri::command]
+pub async fn list_friends(state: State<'_, AppState>) -> AppResult<Vec<Friend>> {
+    friends::list(&state.db())
+}
+
+#[tauri::command]
+pub async fn add_friend(state: State<'_, AppState>, input: FriendInput) -> AppResult<Friend> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    friends::add(&state.db(), &input, &now)
+}
+
+#[tauri::command]
+pub async fn update_friend(
+    state: State<'_, AppState>,
+    id: i64,
+    input: FriendInput,
+) -> AppResult<Friend> {
+    friends::update(&state.db(), id, &input)
+}
+
+/// Removes a friend (the UI confirms first); the history of what was shared stays.
+#[tauri::command]
+pub async fn delete_friend(state: State<'_, AppState>, id: i64) -> AppResult<()> {
+    friends::delete(&state.db(), id)
+}
+
+/// What was sent and received, newest first (one friend's, or everyone's).
+#[tauri::command]
+pub async fn share_history(
+    state: State<'_, AppState>,
+    friend_id: Option<i64>,
+) -> AppResult<Vec<ShareLogEntry>> {
+    friends::history(&state.db(), friend_id)
+}
+
+/// The user's name as shown to friends in shared files ("" until set).
+#[tauri::command]
+pub async fn get_my_name(state: State<'_, AppState>) -> AppResult<String> {
+    friends::my_name(&state.db())
+}
+
+#[tauri::command]
+pub async fn set_my_name(state: State<'_, AppState>, name: String) -> AppResult<String> {
+    friends::set_my_name(&state.db(), &name)
+}
+
+/// What to share, as what, and where to.
+#[derive(Debug, serde::Deserialize, ts_rs::TS)]
+#[ts(export)]
+pub struct ShareRequest {
+    pub ids: Vec<String>,
+    pub format: ShareFormat,
+    /// Recipio files only.
+    pub include_videos: bool,
+    /// Goes with the file (message text, and inside a Recipio file).
+    pub note: String,
+    pub target: ShareTarget,
+    /// The UI language, for the PDF's paper size.
+    pub locale: String,
+}
+
+/// Writes the chosen recipes as a Recipio file or PDF and hands it to a friend's app,
+/// the share menu, or a file the user picked. Progress arrives as `backup://progress`.
+#[tauri::command]
+pub async fn share(app: AppHandle, request: ShareRequest) -> AppResult<ShareOutcome> {
+    blocking(app, move |app, state| {
+        let r = request;
+        if r.ids.is_empty() {
+            return Err(AppError::Validation(
+                "Choose at least one recipe to share.".into(),
+            ));
+        }
+        let (from, list, friend) = {
+            let conn = state.db();
+            let list = r
+                .ids
+                .iter()
+                .map(|id| recipes::get(&conn, id))
+                .collect::<AppResult<Vec<_>>>()?;
+            let friend = match r.target {
+                ShareTarget::Friend { id } => Some(friends::get(&conn, id)?),
+                _ => None,
+            };
+            (friends::my_name(&conn)?, list, friend)
+        };
+        let titles: Vec<String> = list.iter().map(|x| x.title.clone()).collect();
+        let name = sharing::file_name(&titles, &from, r.format);
+        let path = match &r.target {
+            ShareTarget::File { path } => PathBuf::from(path),
+            _ => {
+                std::fs::create_dir_all(&state.outbox)?;
+                sharing::unique_path(&state.outbox, &name)
+            }
+        };
+        match r.format {
+            ShareFormat::Recipio => backup::export(
+                state,
+                &path,
+                &ExportOptions {
+                    kind: Kind::Share,
+                    ids: Some(&r.ids),
+                    include_videos: r.include_videos,
+                    from: from.clone(),
+                    note: r.note.clone(),
+                },
+                &|p| {
+                    let _ = app.emit(backup::EVENT, p);
+                },
+            )?,
+            ShareFormat::Pdf => {
+                let doc_title = name.trim_end_matches(".pdf").to_string();
+                let items = list.into_iter().map(|x| {
+                    let photo = pdf_photo(state, &x);
+                    (x, photo)
+                });
+                let bytes = crate::pdf::render_many(items.collect(), &doc_title, &r.locale)?;
+                std::fs::write(&path, bytes)?;
+            }
+        }
+        let bytes = std::fs::metadata(&path)?.len();
+        let subject = sharing::subject(&titles, &from);
+        let text = sharing::message(&r.note, r.format, titles.len());
+        let handoff = match (&r.target, friend) {
+            (ShareTarget::Friend { .. }, Some(f)) => {
+                sharing::send_to_friend(app, &path, &f, &subject, &text)
+            }
+            (ShareTarget::Other { anchor }, _) => sharing::send_other(app, &path, &text, *anchor),
+            _ => sharing::Handoff::Saved,
+        };
+        if !matches!(r.target, ShareTarget::File { .. }) {
+            let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            let (friend_id, person) = match (&r.target, friends::list(&state.db())?) {
+                (ShareTarget::Friend { id }, all) => (
+                    Some(*id),
+                    all.into_iter()
+                        .find(|f| f.id == *id)
+                        .map(|f| f.name)
+                        .unwrap_or_default(),
+                ),
+                _ => (None, String::new()),
+            };
+            let file = path.file_name().unwrap_or_default().to_string_lossy();
+            friends::log(
+                &state.db(),
+                friend_id,
+                ShareDirection::Sent,
+                &person,
+                &titles,
+                &file,
+                &now,
+            )?;
+        }
+        log::info!(
+            "shared {} recipes as {} ({handoff:?})",
+            titles.len(),
+            path.display()
+        );
+        Ok(ShareOutcome {
+            file: path.to_string_lossy().into_owned(),
+            bytes,
+            handoff,
+        })
+    })
+    .await
+}
+
+/// Shows a file in Finder / Explorer / the file manager.
+#[tauri::command]
+pub fn reveal_file(app: AppHandle, path: String) {
+    sharing::reveal(&app, Path::new(&path));
+}
+
+/// `.recipio` files opened before the UI was ready (or since it last asked).
+#[tauri::command]
+pub fn take_opened_files(state: State<'_, AppState>) -> Vec<String> {
+    std::mem::take(&mut *state.opened.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
 /// Runs file-heavy work off the async runtime.

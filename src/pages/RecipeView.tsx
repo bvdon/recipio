@@ -11,6 +11,7 @@ import {
   ExternalLink,
   Pencil,
   Printer,
+  Send,
   Trash2,
   Users,
   X,
@@ -21,6 +22,7 @@ import type { Recipe } from "../bindings/Recipe";
 import type { VideoBookmark } from "../bindings/VideoBookmark";
 import { ErrorBanner, formatMinutes, Stars } from "../components/common";
 import { isRunning, useVideoDownload, VideoStatusPanel } from "../components/VideoDownload";
+import ShareDialog from "../components/ShareDialog";
 
 export default function RecipeView() {
   const { id = "" } = useParams();
@@ -46,6 +48,8 @@ export default function RecipeView() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.recipes });
     },
   });
+
+  const [sharing, setSharing] = useState(false);
 
   // Saves a PDF (text and photo, never the video) and opens it.
   const pdf = useMutation({
@@ -98,6 +102,14 @@ export default function RecipeView() {
           >
             <Printer size={16} aria-hidden /> PDF
           </button>
+          <button
+            type="button"
+            className="button"
+            onClick={() => setSharing(true)}
+            title="Send this recipe to a friend"
+          >
+            <Send size={16} aria-hidden /> Share
+          </button>
           <button className="button danger" onClick={() => void confirmDelete(r)}>
             <Trash2 size={16} aria-hidden /> Delete
           </button>
@@ -105,12 +117,20 @@ export default function RecipeView() {
       </div>
       {remove.isError && <ErrorBanner message={errorMessage(remove.error)} />}
       {pdf.isError && <ErrorBanner message={errorMessage(pdf.error)} />}
+      {sharing && <ShareDialog ids={[r.id]} onClose={() => setSharing(false)} />}
 
       <header className="recipe-header">
         {r.photo_path && <img className="hero" src={mediaUrl(r.photo_path, r.updated_at)} alt="" />}
         <div>
           <h1>{r.title}</h1>
           {r.rating !== null && <Stars value={r.rating} />}
+          {r.shared_by && (
+            <p className="shared-by">
+              <Link to="/friends" className="chip">
+                From {r.shared_by}
+              </Link>
+            </p>
+          )}
           {r.description && <p className="description">{r.description}</p>}
           <ul className="meta">
             {r.servings !== null && (

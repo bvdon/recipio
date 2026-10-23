@@ -63,6 +63,27 @@
       "nsis": {
         "installMode": "currentUser"
       }
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "recipio"
+        ],
+        "name": "Recipio recipes",
+        "description": "Recipes shared from Recipio",
+        "role": "Viewer",
+        "rank": "Owner",
+        "mimeType": "application/x-recipio",
+        "contentTypes": [
+          "io.github.bvdon.recipio.recipes"
+        ],
+        "exportedType": {
+          "identifier": "io.github.bvdon.recipio.recipes",
+          "conformsTo": [
+            "public.data"
+          ]
+        }
+      }
+    ]
   }
 }

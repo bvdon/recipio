@@ -21,11 +21,13 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::AppState;
+use crate::db::friends;
 use crate::db::{bookmarks, labels, recipes};
 use crate::error::{AppError, AppResult};
 use crate::media::PHOTO_EXTENSIONS;
 use crate::models::{
-    IngredientLine, LabelKind, Nutrition, PhotoChange, Recipe, RecipeInput, VideoStatus,
+    IngredientLine, LabelKind, Nutrition, PhotoChange, Recipe, RecipeInput, ShareDirection,
+    ShareMethod, VideoStatus,
 };
 use crate::quantity;
 
@@ -79,7 +81,82 @@ pub struct SharedRecipe {
 #[ts(export)]
 pub struct SharePreview {
     pub created_at: String,
+    /// Sender's name and note ("" when the file doesn't say).
+    pub from: String,
+    pub note: String,
     pub recipes: Vec<SharedRecipe>,
+}
+
+/// What to write: the whole library (backup) or chosen recipes (share).
+pub struct ExportOptions<'a> {
+    pub kind: Kind,
+    pub ids: Option<&'a [String]>,
+    pub include_videos: bool,
+    /// Share files: sender's name and note.
+    pub from: String,
+    pub note: String,
+}
+
+impl ExportOptions<'_> {
+    pub fn backup(include_videos: bool) -> Self {
+        ExportOptions {
+            kind: Kind::Backup,
+            ids: None,
+            include_videos,
+            from: String::new(),
+            note: String::new(),
+        }
+    }
+}
+
+/// Where a zip entry's bytes come from.
+enum Source {
+    File(PathBuf),
+    Bytes(Vec<u8>),
+}
+
+/// Share files carry smaller photos (email size limits): at most this many pixels on the
+/// long side, as JPEG. Smaller files are sent as they are.
+const SHARE_PHOTO_PX: u32 = 1600;
+const SHARE_PHOTO_KEEP_BYTES: u64 = 500 * 1024;
+
+/// A share-sized JPEG of the photo, or `None` to send the original (already small,
+/// smaller than the result, or a format that can't be decoded here such as AVIF).
+fn shrink_photo(path: &Path) -> Option<Vec<u8>> {
+    let size = fs::metadata(path).ok()?.len();
+    let img = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .inspect_err(|e| log::info!("photo {} kept as is: {e}", path.display()))
+        .ok()?;
+    if size <= SHARE_PHOTO_KEEP_BYTES && img.width().max(img.height()) <= SHARE_PHOTO_PX {
+        return None;
+    }
+    let img = if img.width().max(img.height()) > SHARE_PHOTO_PX {
+        img.resize(
+            SHARE_PHOTO_PX,
+            SHARE_PHOTO_PX,
+            image::imageops::FilterType::Triangle,
+        )
+    } else {
+        img
+    };
+    // JPEG has no transparency: put transparent areas on white.
+    let rgba = img.to_rgba8();
+    let mut rgb = image::RgbImage::new(rgba.width(), rgba.height());
+    for (dst, src) in rgb.pixels_mut().zip(rgba.pixels()) {
+        let a = u16::from(src[3]);
+        for c in 0..3 {
+            dst[c] = ((u16::from(src[c]) * a + 255 * (255 - a)) / 255) as u8;
+        }
+    }
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 82)
+        .encode_image(&rgb)
+        .ok()?;
+    ((out.len() as u64) < size).then_some(out)
 }
 
 /// Backup = whole library, restored by replacing; share = chosen recipes, added.
@@ -112,6 +189,38 @@ struct Manifest {
     #[serde(default)]
     tags: Vec<String>,
     recipes: Vec<BackupRecipe>,
+    /// Share files: the sender's name and note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+    /// Backups: friends, share history and the user's name. Absent in backups made
+    /// before these existed, and then left as they are on restore.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    friends: Option<Vec<BackupFriend>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    share_log: Option<Vec<BackupLog>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    my_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BackupFriend {
+    id: i64,
+    name: String,
+    method: ShareMethod,
+    address: String,
+    created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BackupLog {
+    friend_id: Option<i64>,
+    direction: ShareDirection,
+    person: String,
+    titles: Vec<String>,
+    file_name: String,
+    at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -142,6 +251,8 @@ struct BackupRecipe {
     updated_at: String,
     #[serde(default)]
     bookmarks: Vec<BackupBookmark>,
+    #[serde(default)]
+    shared_by: Option<String>,
     /// Status in the exported library; a video left out of the backup restores as
     /// `missing` so Re-download is offered.
     video_status: VideoStatus,
@@ -275,13 +386,12 @@ fn ready_video(r: &Recipe) -> Option<&str> {
 pub fn export(
     state: &AppState,
     dest: &Path,
-    kind: Kind,
-    ids: Option<&[String]>,
-    include_videos: bool,
+    opts: &ExportOptions,
     report: &dyn Fn(BackupProgress),
 ) -> AppResult<()> {
+    let kind = opts.kind;
     let _busy = state.backups.start()?;
-    let all = all_recipes(state, ids)?;
+    let all = all_recipes(state, opts.ids)?;
     if all.is_empty() && kind == Kind::Share {
         return Err(AppError::Validation(
             "Choose at least one recipe to share.".into(),
@@ -301,21 +411,28 @@ pub fn export(
         (names(LabelKind::Category)?, names(LabelKind::Tag)?)
     };
 
-    // (zip entry, file on disk, size) for every media file that exists.
-    let mut files: Vec<(String, PathBuf, u64)> = Vec::new();
-    let mut add = |rel: Option<&str>| -> Option<String> {
+    // (zip entry, bytes, size) for every media file that exists.
+    let mut files: Vec<(String, Source, u64)> = Vec::new();
+    let mut add = |rel: Option<&str>, shrink: bool| -> Option<String> {
         let rel = rel?;
         let path = state.media.resolve(rel)?;
+        if shrink && let Some(jpeg) = shrink_photo(&path) {
+            let stem = rel.rsplit_once('.').map_or(rel, |(stem, _)| stem);
+            let entry = format!("media/{stem}.jpg");
+            let size = jpeg.len() as u64;
+            files.push((entry.clone(), Source::Bytes(jpeg), size));
+            return Some(entry);
+        }
         let size = fs::metadata(&path).ok()?.len();
         let entry = format!("media/{rel}");
-        files.push((entry.clone(), path, size));
+        files.push((entry.clone(), Source::File(path), size));
         Some(entry)
     };
     let mut entries = Vec::with_capacity(all.len());
     for r in all {
-        let photo = add(r.photo_path.as_deref());
-        let video = if include_videos {
-            add(ready_video(&r))
+        let photo = add(r.photo_path.as_deref(), kind == Kind::Share);
+        let video = if opts.include_videos {
+            add(ready_video(&r), false)
         } else {
             None
         };
@@ -323,6 +440,7 @@ pub fn export(
             photo,
             video,
             video_status: r.video_status,
+            shared_by: r.shared_by.filter(|_| kind == Kind::Backup),
             bookmarks: r
                 .bookmarks
                 .into_iter()
@@ -364,6 +482,34 @@ pub fn export(
     }
     let count = entries.len();
     let now = chrono::Utc::now();
+    let text = |t: &str| Some(t.trim().to_string()).filter(|t| !t.is_empty());
+    let (friend_list, share_log, my_name) = if kind == Kind::Backup {
+        let conn = state.db();
+        let list = friends::list(&conn)?
+            .into_iter()
+            .map(|f| BackupFriend {
+                id: f.id,
+                name: f.name,
+                method: f.method,
+                address: f.address,
+                created_at: f.created_at,
+            })
+            .collect();
+        let log = friends::history(&conn, None)?
+            .into_iter()
+            .map(|e| BackupLog {
+                friend_id: e.friend_id,
+                direction: e.direction,
+                person: e.person,
+                titles: e.titles,
+                file_name: e.file_name,
+                at: e.at,
+            })
+            .collect();
+        (Some(list), Some(log), Some(friends::my_name(&conn)?))
+    } else {
+        (None, None, None)
+    };
     let manifest = serde_json::to_vec_pretty(&Manifest {
         format: match kind {
             Kind::Backup => FORMAT,
@@ -376,6 +522,11 @@ pub fn export(
         categories,
         tags,
         recipes: entries,
+        from: text(&opts.from).filter(|_| kind == Kind::Share),
+        note: text(&opts.note).filter(|_| kind == Kind::Share),
+        friends: friend_list,
+        share_log,
+        my_name,
     })
     .map_err(|e| AppError::Io(io::Error::other(e)))?;
 
@@ -410,9 +561,17 @@ pub fn export(
         // Photos and videos are already compressed: store them as they are.
         let stored = options.compression_method(CompressionMethod::Stored);
         let mut buf = vec![0; CHUNK];
-        for (entry, path, size) in &files {
+        for (entry, source, size) in &files {
             zip.start_file(entry, stored.large_file(*size >= u64::from(u32::MAX)))
                 .map_err(zip_error)?;
+            let path = match source {
+                Source::Bytes(bytes) => {
+                    zip.write_all(bytes)?;
+                    progress.add(bytes.len() as u64);
+                    continue;
+                }
+                Source::File(path) => path,
+            };
             let mut src = File::open(path)?;
             loop {
                 if state.backups.cancelled() {
@@ -532,6 +691,7 @@ struct Restored {
     updated_at: String,
     video_status: VideoStatus,
     bookmarks: Vec<(u32, String)>,
+    shared_by: Option<String>,
     /// (zip entry, file extension)
     photo: Option<(String, String)>,
     /// zip entry
@@ -645,6 +805,7 @@ fn check_recipe(r: BackupRecipe) -> AppResult<Restored> {
     Ok(Restored {
         video,
         photo,
+        shared_by: r.shared_by,
         bookmarks: r
             .bookmarks
             .into_iter()
@@ -668,10 +829,10 @@ pub fn restore(state: &AppState, path: &Path, report: &dyn Fn(BackupProgress)) -
                 .into(),
         ));
     }
-    let (mut zip, manifest) = open(path)?;
+    let (mut zip, mut manifest) = open(path)?;
     let mut seen = HashSet::new();
     let mut restored = Vec::with_capacity(manifest.recipes.len());
-    for r in manifest.recipes {
+    for r in std::mem::take(&mut manifest.recipes) {
         let r = check_recipe(r)?;
         if !seen.insert(r.valid.input.id.clone()) {
             return Err(not_a_backup("duplicate recipe id"));
@@ -739,7 +900,9 @@ pub fn restore(state: &AppState, path: &Path, report: &dyn Fn(BackupProgress)) -
                 ],
             )?;
             bookmarks::insert_all(&tx, &r.valid.input.id, &r.bookmarks)?;
+            recipes::set_shared_by(&tx, &r.valid.input.id, r.shared_by.as_deref())?;
         }
+        restore_friends(&tx, &manifest)?;
         tx.commit()?;
         Ok(())
     })();
@@ -756,6 +919,43 @@ pub fn restore(state: &AppState, path: &Path, report: &dyn Fn(BackupProgress)) -
         path.display()
     );
     Ok(restored.len() as u32)
+}
+
+/// Replaces friends, share history and the user's name with a backup's (when it has them;
+/// older backups don't, and then they're left alone). Friend ids are renumbered.
+fn restore_friends(tx: &rusqlite::Transaction, m: &Manifest) -> AppResult<()> {
+    let mut ids = std::collections::HashMap::new();
+    if let Some(list) = &m.friends {
+        tx.execute_batch("DELETE FROM share_log; DELETE FROM friends;")?;
+        for f in list {
+            tx.execute(
+                "INSERT INTO friends (name, method, address, created_at) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![f.name, f.method.as_str(), f.address, f.created_at],
+            )?;
+            ids.insert(f.id, tx.last_insert_rowid());
+        }
+    }
+    if let Some(log) = &m.share_log {
+        if m.friends.is_none() {
+            tx.execute("DELETE FROM share_log", [])?;
+        }
+        for e in log {
+            let friend = e.friend_id.and_then(|id| ids.get(&id).copied());
+            friends::log(
+                tx,
+                friend,
+                e.direction,
+                &e.person,
+                &e.titles,
+                &e.file_name,
+                &e.at,
+            )?;
+        }
+    }
+    if let Some(name) = m.my_name.as_deref().filter(|n| !n.trim().is_empty()) {
+        friends::set_my_name(tx, name)?;
+    }
+    Ok(())
 }
 
 /// Drops media entries the zip doesn't actually have; returns the bytes to unpack (from
@@ -840,6 +1040,8 @@ pub fn preview(state: &AppState, path: &Path) -> AppResult<SharePreview> {
     }
     Ok(SharePreview {
         created_at: m.created_at,
+        from: m.from.unwrap_or_default(),
+        note: m.note.unwrap_or_default(),
         recipes,
     })
 }
@@ -855,6 +1057,12 @@ pub fn add_shared(
 ) -> AppResult<u32> {
     let _busy = state.backups.start()?;
     let (mut zip, manifest) = open_shared(path)?;
+    let from = manifest
+        .from
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
     let mut chosen = Vec::new();
     for r in manifest.recipes.into_iter().filter(|r| ids.contains(&r.id)) {
         chosen.push(check_recipe(r)?);
@@ -930,6 +1138,27 @@ pub fn add_shared(
             let (video, status) = r.video_state(Kind::Share);
             recipes::set_video(&tx, id, video.as_deref(), status, None)?;
             bookmarks::insert_all(&tx, id, &r.bookmarks)?;
+            // From a friend's file, the sender; from one's own backup, as it was.
+            let by = if from.is_empty() {
+                r.shared_by.as_deref()
+            } else {
+                Some(from.as_str())
+            };
+            recipes::set_shared_by(&tx, id, by)?;
+        }
+        if !from.is_empty() {
+            let friend = friends::find_by_name(&tx, &from)?;
+            let titles: Vec<String> = chosen.iter().map(|r| r.valid.input.title.clone()).collect();
+            let file = path.file_name().unwrap_or_default().to_string_lossy();
+            friends::log(
+                &tx,
+                friend.map(|f| f.id),
+                ShareDirection::Received,
+                &from,
+                &titles,
+                &file,
+                &now,
+            )?;
         }
         tx.commit()?;
         Ok(())
@@ -963,6 +1192,8 @@ mod tests {
             videos: Videos::default(),
             backups: Backups::default(),
             keep_awake: Mutex::new(None),
+            opened: Mutex::new(Vec::new()),
+            outbox: dir.join("outbox"),
         }
     }
 
@@ -1022,6 +1253,16 @@ mod tests {
         }
     }
 
+    fn share_opts(ids: &[String], include_videos: bool) -> ExportOptions<'_> {
+        ExportOptions {
+            kind: Kind::Share,
+            ids: Some(ids),
+            include_videos,
+            from: " Rob ".into(),
+            note: "Try these!".into(),
+        }
+    }
+
     const A: &str = "11111111-1111-4111-8111-111111111111";
     const B: &str = "22222222-2222-4222-8222-222222222222";
     const C: &str = "33333333-3333-4333-8333-333333333333";
@@ -1039,7 +1280,7 @@ mod tests {
 
         let file = tmp.path().join("backup.zip");
         let reports = Mutex::new(Vec::new());
-        export(&source, &file, Kind::Backup, None, true, &|p| {
+        export(&source, &file, &ExportOptions::backup(true), &|p| {
             reports.lock().unwrap().push(p)
         })
         .unwrap();
@@ -1096,7 +1337,7 @@ mod tests {
         let source = state(&tmp.path().join("one"));
         add(&source, A, "Apple pie", true);
         let file = tmp.path().join("backup.zip");
-        export(&source, &file, Kind::Backup, None, false, &|_| {}).unwrap();
+        export(&source, &file, &ExportOptions::backup(false), &|_| {}).unwrap();
         assert_eq!(inspect(&file).unwrap().videos, 0);
 
         let target = state(&tmp.path().join("two"));
@@ -1205,7 +1446,7 @@ mod tests {
 
         let file = tmp.path().join("for friend.recipio");
         let ids = vec![A.to_string()];
-        export(&mine, &file, Kind::Share, Some(&ids), false, &|_| {}).unwrap();
+        export(&mine, &file, &share_opts(&ids, false), &|_| {}).unwrap();
         assert!(
             inspect(&file).is_err(),
             "a share file can't be restored over a library"
@@ -1222,10 +1463,23 @@ mod tests {
             ("Apple pie", true, false, false)
         );
 
+        assert_eq!(
+            (shown.from.as_str(), shown.note.as_str()),
+            ("Rob", "Try these!")
+        );
+
         assert_eq!(add_shared(&friend, &file, &ids, &|_| {}).unwrap(), 1);
         let conn = friend.db();
         assert!(recipes::get(&conn, C).is_ok(), "nothing removed");
         let a = recipes::get(&conn, A).unwrap();
+        assert_eq!(a.shared_by.as_deref(), Some("Rob"));
+        let log = friends::history(&conn, None).unwrap();
+        assert_eq!(log.len(), 1);
+        assert_eq!(
+            (log[0].direction, log[0].person.as_str()),
+            (ShareDirection::Received, "Rob")
+        );
+        assert_eq!(log[0].titles, vec!["Apple pie"]);
         assert_eq!(a.rating, None, "ratings are personal");
         assert_eq!(a.categories, vec!["Baking"]);
         assert_eq!(
@@ -1274,15 +1528,7 @@ mod tests {
         let mine = state(&tmp.path().join("mine"));
         add(&mine, A, "Apple pie", true);
         let file = tmp.path().join("x.recipio");
-        export(
-            &mine,
-            &file,
-            Kind::Share,
-            Some(&[A.to_string()]),
-            true,
-            &|_| {},
-        )
-        .unwrap();
+        export(&mine, &file, &share_opts(&[A.to_string()], true), &|_| {}).unwrap();
         let friend = state(&tmp.path().join("friend"));
         add_shared(&friend, &file, &[A.to_string()], &|_| {}).unwrap();
         let a = recipes::get(&friend.db(), A).unwrap();
@@ -1297,7 +1543,7 @@ mod tests {
         add(&source, A, "Apple pie", true);
         bookmarks::add(&source.db(), A, 30, "Mix", None).unwrap();
         let file = tmp.path().join("b.zip");
-        export(&source, &file, Kind::Backup, None, true, &|_| {}).unwrap();
+        export(&source, &file, &ExportOptions::backup(true), &|_| {}).unwrap();
         let target = state(&tmp.path().join("two"));
         restore(&target, &file, &|_| {}).unwrap();
         assert_eq!(recipes::get(&target.db(), A).unwrap().bookmarks.len(), 1);
@@ -1323,5 +1569,96 @@ mod tests {
         )
         .unwrap();
         assert!(bookmarks::list(&conn, A).unwrap().is_empty());
+    }
+
+    #[test]
+    fn shares_smaller_photos() {
+        let tmp = tempfile::tempdir().unwrap();
+        let big = tmp.path().join("big.png");
+        let img = image::RgbaImage::from_fn(2400, 1200, |x, y| {
+            image::Rgba([(x % 251) as u8, (y % 241) as u8, ((x * y) % 239) as u8, 255])
+        });
+        img.save(&big).unwrap();
+        let jpeg = shrink_photo(&big).expect("shrunk");
+        let out = image::load_from_memory(&jpeg).unwrap();
+        assert_eq!((out.width(), out.height()), (1600, 800));
+        assert!((jpeg.len() as u64) < fs::metadata(&big).unwrap().len());
+
+        let small = tmp.path().join("small.png");
+        image::RgbaImage::new(300, 200).save(&small).unwrap();
+        assert!(
+            shrink_photo(&small).is_none(),
+            "small photos go as they are"
+        );
+        let junk = tmp.path().join("x.avif");
+        fs::write(&junk, b"not decodable here").unwrap();
+        assert!(shrink_photo(&junk).is_none());
+    }
+
+    #[test]
+    fn backups_carry_friends_history_and_name() {
+        use crate::models::{FriendInput, ShareMethod};
+        let tmp = tempfile::tempdir().unwrap();
+        let source = state(&tmp.path().join("one"));
+        add(&source, A, "Apple pie", false);
+        {
+            let conn = source.db();
+            let input = FriendInput {
+                name: "Sam".into(),
+                method: ShareMethod::Messages,
+                address: "5551234567".into(),
+            };
+            let sam = friends::add(&conn, &input, "2026-01-01T00:00:00Z").unwrap();
+            friends::log(
+                &conn,
+                Some(sam.id),
+                ShareDirection::Sent,
+                "Sam",
+                &["Apple pie".into()],
+                "x.recipio",
+                "2026-01-02T00:00:00Z",
+            )
+            .unwrap();
+            friends::set_my_name(&conn, "Rob").unwrap();
+            recipes::set_shared_by(&conn, A, Some("Ana")).unwrap();
+        }
+        let file = tmp.path().join("b.zip");
+        export(&source, &file, &ExportOptions::backup(false), &|_| {}).unwrap();
+
+        let target = state(&tmp.path().join("two"));
+        restore(&target, &file, &|_| {}).unwrap();
+        let conn = target.db();
+        let list = friends::list(&conn).unwrap();
+        assert_eq!(list.len(), 1);
+        let log = friends::history(&conn, Some(list[0].id)).unwrap();
+        assert_eq!(log.len(), 1, "history linked to the restored friend");
+        assert_eq!(friends::my_name(&conn).unwrap(), "Rob");
+        assert_eq!(
+            recipes::get(&conn, A).unwrap().shared_by.as_deref(),
+            Some("Ana")
+        );
+    }
+
+    #[test]
+    fn older_backups_leave_friends_alone() {
+        use crate::models::{FriendInput, ShareMethod};
+        let tmp = tempfile::tempdir().unwrap();
+        let manifest = format!(
+            r#"{{"format":"recipio-backup","version":1,"recipes":[{{"id":"{A}","title":"T",
+               "servings":null,"prep_minutes":null,"cook_minutes":null,"rating":null,
+               "youtube_url":null,"source_url":null,"created_at":"x","updated_at":"x",
+               "video_status":"none","photo":null,"video":null}}]}}"#
+        );
+        let path = tmp.path().join("old.zip");
+        zip_with(&path, &[(MANIFEST, manifest.as_bytes())]);
+        let target = state(&tmp.path().join("lib"));
+        let input = FriendInput {
+            name: "Sam".into(),
+            method: ShareMethod::Email,
+            address: "s@x.org".into(),
+        };
+        friends::add(&target.db(), &input, "2026-01-01T00:00:00Z").unwrap();
+        restore(&target, &path, &|_| {}).unwrap();
+        assert_eq!(friends::list(&target.db()).unwrap().len(), 1);
     }
 }

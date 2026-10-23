@@ -15,6 +15,11 @@ import type { BackupSummary } from "./bindings/BackupSummary";
 import type { LibraryStats } from "./bindings/LibraryStats";
 import type { SharePreview } from "./bindings/SharePreview";
 import type { VideoBookmark } from "./bindings/VideoBookmark";
+import type { Friend } from "./bindings/Friend";
+import type { FriendInput } from "./bindings/FriendInput";
+import type { ShareLogEntry } from "./bindings/ShareLogEntry";
+import type { ShareOutcome } from "./bindings/ShareOutcome";
+import type { ShareRequest } from "./bindings/ShareRequest";
 
 export type AppError = { kind: string; message: string };
 
@@ -58,13 +63,21 @@ export const api = {
   cancelBackup: () => invoke<void>("cancel_backup"),
   inspectBackup: (path: string) => invoke<BackupSummary>("inspect_backup", { path }),
   restoreBackup: (path: string) => invoke<number>("restore_backup", { path }),
-  shareRecipes: (path: string, ids: string[], includeVideos: boolean) =>
-    invoke<void>("share_recipes", { path, ids, includeVideos }),
   previewShared: (path: string) => invoke<SharePreview>("preview_shared", { path }),
   addSharedRecipes: (path: string, ids: string[]) =>
     invoke<number>("add_shared_recipes", { path, ids }),
   addVideoBookmark: (recipeId: string, time: string, label: string, duration: number | null) =>
     invoke<VideoBookmark[]>("add_video_bookmark", { recipeId, time, label, duration }),
+  listFriends: () => invoke<Friend[]>("list_friends"),
+  addFriend: (input: FriendInput) => invoke<Friend>("add_friend", { input }),
+  updateFriend: (id: number, input: FriendInput) => invoke<Friend>("update_friend", { id, input }),
+  deleteFriend: (id: number) => invoke<void>("delete_friend", { id }),
+  shareHistory: (friendId: number | null) => invoke<ShareLogEntry[]>("share_history", { friendId }),
+  getMyName: () => invoke<string>("get_my_name"),
+  setMyName: (name: string) => invoke<string>("set_my_name", { name }),
+  share: (request: ShareRequest) => invoke<ShareOutcome>("share", { request }),
+  revealFile: (path: string) => invoke<void>("reveal_file", { path }),
+  takeOpenedFiles: () => invoke<string[]>("take_opened_files"),
   exportPdf: (id: string, path: string, locale: string) =>
     invoke<void>("export_pdf", { id, path, locale }),
   deleteVideoBookmark: (recipeId: string, id: number) =>
@@ -76,6 +89,7 @@ export const events = {
   videoJob: "video://job",
   toolsProgress: "tools://progress",
   backupProgress: "backup://progress",
+  openFiles: "app://open-files",
 };
 
 /** URL for a file in the media folder. `version` busts the webview cache after a replace. */
@@ -95,4 +109,8 @@ export const queryKeys = {
   videoJob: (recipeId: string) => ["video-job", recipeId] as const,
   tools: ["tools"] as const,
   libraryStats: ["library-stats"] as const,
+  friends: ["friends"] as const,
+  myName: ["my-name"] as const,
+  history: (friendId: number | null) => ["share-history", friendId] as const,
+  allHistory: ["share-history"] as const,
 };

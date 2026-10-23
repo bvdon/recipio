@@ -123,6 +123,8 @@ pub struct Recipe {
     pub tags: Vec<String>,
     /// Ordered by time.
     pub bookmarks: Vec<VideoBookmark>,
+    /// Name of the friend this recipe came from (added from a shared file).
+    pub shared_by: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -175,6 +177,76 @@ pub struct RecipeInput {
     /// Category and tag names; unknown names are created on save.
     pub categories: Vec<String>,
     pub tags: Vec<String>,
+}
+
+/// How a friend is sent recipes: Messages (Apple devices) or email.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ShareMethod {
+    Messages,
+    Email,
+}
+
+impl ShareMethod {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ShareMethod::Messages => "messages",
+            ShareMethod::Email => "email",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        if s == "messages" {
+            ShareMethod::Messages
+        } else {
+            ShareMethod::Email
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct Friend {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub name: String,
+    pub method: ShareMethod,
+    /// Phone number or email address.
+    pub address: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(export)]
+pub struct FriendInput {
+    pub name: String,
+    pub method: ShareMethod,
+    pub address: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ShareDirection {
+    Sent,
+    Received,
+}
+
+/// One file sent to or received from a friend (local history).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct ShareLogEntry {
+    #[ts(type = "number")]
+    pub id: i64,
+    #[ts(type = "number | null")]
+    pub friend_id: Option<i64>,
+    pub direction: ShareDirection,
+    /// The friend's name (sent) or the sender's name (received).
+    pub person: String,
+    pub titles: Vec<String>,
+    pub file_name: String,
+    pub at: String,
 }
 
 /// A recipe read from a web page, shaped for the editor to show for review. Nothing is

@@ -49,6 +49,8 @@ encoding_rs = "0.8.42"
 keepawake = "0.6.1"
 krilla = "0.8.2"
 rustybuzz = "0.20.1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+tauri-plugin-single-instance = "2.5"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -64,3 +66,8 @@ tempfile = "3.27.0"
 
 [target."cfg(unix)".dependencies]
 libc = "0.2.191"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSSharingService", "NSView", "NSResponder"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSURL", "NSGeometry", "NSObject"] }

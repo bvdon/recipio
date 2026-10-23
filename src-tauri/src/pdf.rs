@@ -52,11 +52,24 @@ pub struct Photo {
 
 /// Renders the recipe. `locale` (e.g. "en-US") picks the paper size.
 pub fn render(recipe: &Recipe, photo: Option<Photo>, locale: &str) -> AppResult<Vec<u8>> {
+    let title = recipe.title.clone();
+    render_many(vec![(recipe.clone(), photo)], &title, locale)
+}
+
+/// Several recipes in one PDF, each starting on a new page; `title` names the document.
+pub fn render_many(
+    recipes: Vec<(Recipe, Option<Photo>)>,
+    title: &str,
+    locale: &str,
+) -> AppResult<Vec<u8>> {
     let page = if uses_letter(locale) { LETTER } else { A4 };
     let fonts = Fonts::load()?;
     let mut l = Layout::new(&fonts, page);
-    lay_out(&mut l, recipe, photo);
-    l.finish(&recipe.title)
+    for (recipe, photo) in recipes {
+        l.start_recipe(&recipe.title);
+        lay_out(&mut l, &recipe, photo);
+    }
+    l.finish(title)
 }
 
 fn lay_out(l: &mut Layout, r: &Recipe, photo: Option<Photo>) {
@@ -305,6 +318,8 @@ struct Layout<'a> {
     fonts: &'a Fonts,
     page: (f32, f32),
     pages: Vec<Vec<Op>>,
+    /// Footer title of each page (the recipe on it).
+    titles: Vec<String>,
     /// Top of the next line.
     y: f32,
     /// Space to keep free below a heading so it isn't left alone at a page end.
@@ -317,6 +332,7 @@ impl<'a> Layout<'a> {
             fonts,
             page,
             pages: vec![Vec::new()],
+            titles: vec![String::new()],
             y: MARGIN,
             keep: 0.0,
         }
@@ -334,8 +350,24 @@ impl<'a> Layout<'a> {
     fn ensure(&mut self, height: f32) {
         let needed = height + std::mem::take(&mut self.keep);
         if self.y + needed > self.bottom() && self.y > MARGIN {
-            self.pages.push(Vec::new());
-            self.y = MARGIN;
+            self.new_page();
+        }
+    }
+
+    fn new_page(&mut self) {
+        let title = self.titles.last().cloned().unwrap_or_default();
+        self.pages.push(Vec::new());
+        self.titles.push(title);
+        self.y = MARGIN;
+    }
+
+    /// Each recipe starts on a fresh page and names the pages it fills.
+    fn start_recipe(&mut self, title: &str) {
+        if self.pages.last().is_some_and(|p| !p.is_empty()) {
+            self.new_page();
+        }
+        if let Some(t) = self.titles.last_mut() {
+            *t = title.to_string();
         }
     }
 
@@ -465,14 +497,15 @@ impl<'a> Layout<'a> {
         );
         let count = self.pages.len();
         let footer = Style::new(8.5).color(MUTED);
-        let short_title: String = {
+        let short = |title: &str| -> String {
             let mut t: String = title.chars().take(70).collect();
             if title.chars().count() > 70 {
                 t.push('…');
             }
             t
         };
-        for (n, ops) in self.pages.into_iter().enumerate() {
+        for (n, (ops, page_title)) in self.pages.into_iter().zip(self.titles).enumerate() {
+            let short_title = short(&page_title);
             let settings = PageSettings::from_wh(self.page.0, self.page.1)
                 .ok_or_else(|| AppError::Io(std::io::Error::other("bad page size")))?;
             let mut page = doc.start_page_with(settings);
@@ -571,6 +604,7 @@ mod tests {
             categories: vec!["Dinner".into()],
             tags: vec!["easy".into()],
             bookmarks: vec![],
+            shared_by: None,
             created_at: "2026-01-01T00:00:00Z".into(),
             updated_at: "2026-01-01T00:00:00Z".into(),
         }
@@ -623,6 +657,23 @@ mod tests {
             "no video link"
         );
         assert!(!all.to_lowercase().contains("video"));
+    }
+
+    #[test]
+    fn puts_several_recipes_on_their_own_pages() {
+        let fonts = Fonts::load().unwrap();
+        let mut l = Layout::new(&fonts, LETTER);
+        for title in ["First", "Second"] {
+            let mut r = recipe(2);
+            r.title = title.into();
+            l.start_recipe(&r.title);
+            lay_out(&mut l, &r, None);
+        }
+        assert_eq!(l.pages.len(), l.titles.len());
+        let second = l.titles.iter().position(|t| t == "Second").unwrap();
+        assert!(second > 0 && l.titles[..second].iter().all(|t| t == "First"));
+        let pdf = render_many(vec![(recipe(1), None), (recipe(1), None)], "Two", "en-US").unwrap();
+        assert!(pdf.starts_with(b"%PDF"));
     }
 
     #[test]

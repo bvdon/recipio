@@ -12,4 +12,8 @@ photo_path: string | null, notes: string, rating: number | null, youtube_url: st
 /**
  * Ordered by time.
  */
-bookmarks: Array<VideoBookmark>, created_at: string, updated_at: string, };
+bookmarks: Array<VideoBookmark>, 
+/**
+ * Name of the friend this recipe came from (added from a shared file).
+ */
+shared_by: string | null, created_at: string, updated_at: string, };

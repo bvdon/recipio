@@ -88,7 +88,7 @@ pub fn get(conn: &Connection, id: &str) -> AppResult<Recipe> {
         .query_row(
             "SELECT id, title, description, servings, prep_minutes, cook_minutes, photo_path,
                     notes, rating, youtube_url, video_path, video_status, source_url,
-                    calories, protein_g, carbs_g, fat_g, created_at, updated_at
+                    calories, protein_g, carbs_g, fat_g, created_at, updated_at, shared_by
              FROM recipes WHERE id = ?1",
             [id],
             recipe_from_row,
@@ -309,6 +309,15 @@ pub fn write(
     reindex(tx, recipe)
 }
 
+/// Records which friend a recipe came from (or clears it).
+pub fn set_shared_by(conn: &Connection, id: &str, name: Option<&str>) -> AppResult<()> {
+    conn.execute(
+        "UPDATE recipes SET shared_by = ?2 WHERE id = ?1",
+        params![id, name.map(str::trim).filter(|n| !n.is_empty())],
+    )?;
+    Ok(())
+}
+
 /// Bookmarks belong to a video: when the recipe's YouTube link changes to a different
 /// video (or is cleared), they no longer apply.
 fn clear_bookmarks_if_new_video(conn: &Connection, id: &str, url: Option<&str>) -> AppResult<()> {
@@ -409,6 +418,7 @@ fn recipe_from_row(row: &Row) -> rusqlite::Result<Recipe> {
         categories: Vec::new(),
         tags: Vec::new(),
         bookmarks: Vec::new(),
+        shared_by: row.get(19)?,
         created_at: row.get(17)?,
         updated_at: row.get(18)?,
     })

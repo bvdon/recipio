@@ -384,35 +384,40 @@ CSS modules. No UI framework. Type-ahead pickers are a small custom combobox.
 Each phase ends with: clippy + fmt + eslint + prettier clean, tests passing, a git commit,
 test instructions for the owner, and a stop for approval.
 
-### Phase 8 (design, awaiting approval): Friends
+### Phase 8 (as built): Friends
 
 Owner decision Q25: no servers, no in-app chat; recipes travel through services people
 already use. Friends use macOS and Windows.
 
 **How a recipe gets to a friend**
 
-| You're on | Friend's method | What happens                                                                                 |
-| --------- | --------------- | -------------------------------------------------------------------------------------------- |
-| macOS     | Messages        | Messages opens a new message to the friend with the `.recipio` file attached; you type, send |
-| macOS     | Email           | Mail opens a new email to the friend, subject "Recipes from <you>", file attached            |
-| macOS     | (any)           | "Other…" opens the system share menu (AirDrop, Mail, Messages, Notes…)                       |
-| Windows   | Email or other  | the Windows share panel opens with the file (Outlook, Phone Link, Nearby sharing, WhatsApp…) |
-| any       | fallback        | "Save file…" / "Show in Finder/Explorer" (e.g. Gmail in a browser: attach it yourself)       |
+| You're on | Friend's method | What happens                                                                                            |
+| --------- | --------------- | ------------------------------------------------------------------------------------------------------- |
+| macOS     | Messages        | Messages opens a new message to the friend with the `.recipio` file attached; you type, send            |
+| macOS     | Email           | Mail opens a new email to the friend, subject "Recipes from <you>", file attached                       |
+| macOS     | (any)           | "Other…" opens the system share menu (AirDrop, Mail, Messages, Notes…)                                  |
+| Windows   | Email           | a new email to the friend opens in the default mail app; the file is shown in Explorer to drag in (Q26) |
+| any       | fallback        | "Save file…" / "Show in Finder/Explorer" (e.g. Gmail in a browser: attach it yourself)                  |
 
-Messages only reaches Apple devices, so Windows friends are set to Email. The Windows
-share panel can't pre-fill a recipient, so on Windows the friend's address is copied to
-the clipboard to paste. macOS uses `NSSharingService` (Messages/Mail with recipients and
-attachment) via `objc2-app-kit`; Windows uses `DataTransferManager` via the `windows`
-crate. Both run on the main thread. Files are written to `<app_data>/outbox/` (kept 7
-days, so a Mail draft can still find its attachment).
+Messages only reaches Apple devices, so Windows friends are set to Email. macOS uses
+`NSSharingService` (Messages/Mail with recipient, subject, text and attachment) and
+`NSSharingServicePicker` (the share menu, anchored at the Send button) via
+`objc2-app-kit`, on the main thread (`sharing.rs`). If a service isn't set up (e.g. Mail
+without an account), it falls back to the email draft. Windows/Linux: `mailto:` draft
+(recipient, subject, body that says which file to attach) + the file revealed in its
+folder. Files are written to `<app_data>/outbox/` (kept 7 days, so a Mail draft can still
+find its attachment). The message text is the user's note plus, for Recipio files, how
+to open it and where to get Recipio.
 
 **How a friend receives it**
 
-- `.recipio` is registered with Recipio (bundle `fileAssociations`; a macOS exported type).
-  Clicking the attachment in Messages/Mail/Explorer opens Recipio straight on _Import
-  shared recipes_ with that file loaded. macOS delivers it as an "opened" event; on Windows
-  the file arrives as a launch argument, and `tauri-plugin-single-instance` hands it to the
-  already-running app.
+- `.recipio` is registered with Recipio (bundle `fileAssociations`, exported UTI
+  `io.github.bvdon.recipio.recipes`). Clicking the attachment in Messages/Mail/Explorer
+  opens Recipio straight on _Import shared recipes_ (`/share/import?file=…`). macOS
+  delivers it as `RunEvent::Opened`; on Windows/Linux the file is a launch argument, and
+  `tauri-plugin-single-instance` hands a second launch's arguments to the running app.
+  Files are queued in Rust (`take_opened_files`) and announced with `app://open-files`,
+  so a file that arrives before the UI is ready isn't lost.
 - The import screen shows who it's from and their note ("From Sam: try the curry!").
 
 **In the app**
@@ -424,7 +429,13 @@ days, so a Mail draft can still find its attachment).
   file…"), _Share the whole book_, _Import a file…_.
 - Recipe page: **Share** button (next to PDF) → menu of friends + "Other…" for that recipe.
 - Received recipes remember the sender: a "From Sam" chip on the recipe page.
-- Settings: **Your name** (shown to friends in files you send), asked the first time you share.
+- Settings → Sharing and the Friends page: **Your name** (shown to friends in files you
+  send); the Share dialog asks for it the first time a Recipio file is sent.
+- **Share dialog** (recipe page, the picker, a friend's "Share recipes…", "Share the whole
+  book" = picker with everything ticked): send to a friend / Other… / Save a file; as a
+  Recipio file (videos optional) or a PDF (one PDF, each recipe on new pages); optional
+  note; size estimate with an email-size warning; afterwards it says what to do next
+  (e.g. "Messages is open… press Send") with a Show file button.
 
 **Data**: migration 0003 — `friends` (id, name, method `messages|email`, address,
 created_at), `share_log` (id, friend_id null, direction `sent|received`, sender name,
@@ -440,10 +451,12 @@ originals); videos stay off by default. The picker shows the file size and warns
 **Not included**: in-app chat, contacts import (manual entry for now), syncing, read
 receipts, Linux-native sharing (Linux gets Save file / Show in folder).
 
-**Testing**: Rust unit tests for the friends/log tables, manifest `from`/`note`, photo
-resizing and the file-open routing. The macOS share sheets need the owner (UI). Windows
-sharing and file opening compile in CI but stay untested until a Windows machine is
-available.
+**Testing**: Rust unit tests for the friends/log tables, manifest `from`/`note`, received
+log and `shared_by`, photo resizing, friends in backups, file names, outbox pruning,
+`mailto:` links and finding `.recipio` files in launch arguments. macOS reports the
+Messages and Mail services available for file + text (checked with a script). The share
+UI itself needs the owner; Windows compiles in CI but is untested until a Windows machine
+is available.
 
 ## 6. Open questions / decisions log
 
@@ -474,3 +487,4 @@ available.
 | Q23 | Importing a recipe that already exists                                              | Never overwrite: unticked by default; if ticked, added as a copy with a new id                                                                                 |
 | Q24 | Recipe PDF                                                                          | Generated in Rust (krilla + Noto Sans), opened after saving; never includes the video, its link or bookmarks; Letter/A4 by locale                              |
 | Q25 | Friends / sharing with friends                                                      | Option 3 (2026-10-23): native sharing (Messages/Mail/AirDrop, Windows share) + `.recipio` file association; no servers, no in-app chat. Phase 8, after Phase 7 |
+| Q26 | Windows sharing                                                                     | `mailto:` draft to the friend + file shown in Explorer, instead of the Windows share panel (WinRT code that can't be tested yet)                               |

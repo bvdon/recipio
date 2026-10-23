@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -14,7 +14,10 @@ import { ErrorBanner, fileName, plural } from "../components/common";
  */
 export default function ImportShared() {
   const queryClient = useQueryClient();
-  const [path, setPath] = useState<string | null>(null);
+  // The file comes in the address (`?file=`): chosen here, or opened from Finder,
+  // Explorer or a Messages/Mail attachment (see Layout).
+  const [params, setParams] = useSearchParams();
+  const path = params.get("file");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [added, setAdded] = useState<number | null>(null);
   const [progress, setProgress] = useState<BackupProgress | null>(null);
@@ -24,6 +27,12 @@ export default function ImportShared() {
     // Start with everything new ticked.
     onSuccess: (p) => setSelected(new Set(p.recipes.filter((r) => !r.in_library).map((r) => r.id))),
   });
+
+  const { mutate: load, reset: resetPreview } = preview;
+  useEffect(() => {
+    if (path) load(path);
+    else resetPreview();
+  }, [path, load, resetPreview]);
 
   useEffect(() => {
     const unlisten = listen<BackupProgress>(events.backupProgress, (e) => setProgress(e.payload));
@@ -51,8 +60,7 @@ export default function ImportShared() {
     if (!chosen) return;
     setAdded(null);
     add.reset();
-    setPath(chosen);
-    preview.mutate(chosen);
+    setParams({ file: chosen }, { replace: true });
   };
 
   const toggle = (id: string) =>
@@ -116,6 +124,12 @@ export default function ImportShared() {
                   {shared && ` · shared ${shared}`}
                 </span>
               </h2>
+              {(p.from || p.note) && (
+                <div className="share-from">
+                  {p.from && <strong>From {p.from}</strong>}
+                  {p.note && <p>“{p.note}”</p>}
+                </div>
+              )}
               <ul className="pick-list">
                 {p.recipes.map((r) => (
                   <li key={r.id} className={selected.has(r.id) ? "on" : undefined}>
