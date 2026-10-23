@@ -38,6 +38,31 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "bvdon",
+    "homepage": "https://github.com/bvdon/recipio",
+    "copyright": "Copyright © 2026 bvdon. MIT License.",
+    "license": "MIT",
+    "category": "Lifestyle",
+    "shortDescription": "A local-first recipe app",
+    "longDescription": "Recipio keeps your recipes on your own computer: photos, structured ingredients, steps, offline YouTube videos, web import, cooking mode, PDF and backups. No accounts, no cloud.",
+    "linux": {
+      "deb": {
+        "depends": [
+          "gstreamer1.0-plugins-base",
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-plugins-bad",
+          "gstreamer1.0-libav"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }

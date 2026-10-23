@@ -384,6 +384,20 @@ CSS modules. No UI framework. Type-ahead pickers are a small custom combobox.
 Each phase ends with: clippy + fmt + eslint + prettier clean, tests passing, a git commit,
 test instructions for the owner, and a stop for approval.
 
+### Phase 8 (planned): Friends
+
+Owner decision Q25. Friends use macOS and Windows; no servers, so recipes travel through
+services people already use. Design to be written up for approval before coding; outline:
+
+- A Friends list in the app (name + phone/email, or picked from Contacts), stored locally.
+- "Share with… <friend>" for one recipe, a selection or the whole book: build the
+  `.recipio` file, then hand it to the OS share UI with the friend as recipient —
+  macOS `NSSharingService` (Messages, Mail, AirDrop), Windows share UI / Mail; fallback
+  "show file". Videos off by default (message size limits).
+- `.recipio` file association: opening an attachment launches Recipio on the import
+  screen. Imported recipes remember who shared them; the Friends page lists what was sent
+  and received (local only).
+
 ## 6. Open questions / decisions log
 
 | #   | Question                                                                            | Decision                                                                                                                                |
@@ -412,3 +426,4 @@ test instructions for the owner, and a stop for approval.
 | Q22 | Share file format                                                                   | `.recipio` = backup zip layout, format `recipio-share`, chosen recipes, no ratings; videos optional (off by default)                    |
 | Q23 | Importing a recipe that already exists                                              | Never overwrite: unticked by default; if ticked, added as a copy with a new id                                                          |
 | Q24 | Recipe PDF                                                                          | Generated in Rust (krilla + Noto Sans), opened after saving; never includes the video, its link or bookmarks; Letter/A4 by locale       |
+| Q25 | Friends / sharing with friends                                                       | Option 3 (2026-10-23): native sharing (Messages/Mail/AirDrop, Windows share) + `.recipio` file association; no servers, no in-app chat. Phase 8, after Phase 7 |
