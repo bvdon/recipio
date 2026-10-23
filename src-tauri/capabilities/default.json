@@ -11,6 +11,9 @@
     "dialog:allow-open",
     "dialog:allow-ask",
     "dialog:allow-message",
-    "log:default"
+    "log:default",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
+    "dialog:allow-save"
   ]
 }

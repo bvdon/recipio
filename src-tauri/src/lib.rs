@@ -1,3 +1,4 @@
+mod backup;
 mod commands;
 mod db;
 mod duration;
@@ -19,6 +20,7 @@ use rusqlite::Connection;
 use tauri::Manager;
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
+use backup::Backups;
 use media::MediaDir;
 use tools::Tools;
 use video::Videos;
@@ -28,6 +30,9 @@ pub struct AppState {
     media: MediaDir,
     tools: Tools,
     videos: Videos,
+    backups: Backups,
+    /// Held while cooking mode is open (see `commands::set_keep_awake`).
+    keep_awake: Mutex<Option<keepawake::KeepAwake>>,
 }
 
 impl AppState {
@@ -85,6 +90,8 @@ pub fn run() {
                 media,
                 tools: Tools::new(&data_dir.join("bin"))?,
                 videos: Videos::default(),
+                backups: Backups::default(),
+                keep_awake: Mutex::new(None),
             });
             Ok(())
         })
@@ -111,6 +118,12 @@ pub fn run() {
             commands::tools_status,
             commands::install_tools,
             commands::import_recipe,
+            commands::set_keep_awake,
+            commands::library_stats,
+            commands::export_backup,
+            commands::cancel_backup,
+            commands::inspect_backup,
+            commands::restore_backup,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

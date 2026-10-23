@@ -1,10 +1,11 @@
 //! Tauri command wrappers. Keep these thin: validation and logic live in `db` and `media`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::AppState;
+use crate::backup::{self, BackupSummary, LibraryStats};
 use crate::db::{labels, recipes};
 use crate::error::{AppError, AppResult};
 use crate::models::VideoStatus;
@@ -219,4 +220,97 @@ pub async fn install_tools(
 #[tauri::command]
 pub async fn import_recipe(state: State<'_, AppState>, url: String) -> AppResult<WebImport> {
     web_import::import(&state, &url).await
+}
+
+/// Keeps the screen on while cooking mode is open. Not `async` on purpose: sync commands
+/// run on the main thread, and on Windows the keep-awake request belongs to the thread
+/// that made it. Failure only means the screen may dim, so it's logged, not raised.
+#[tauri::command]
+pub fn set_keep_awake(state: State<'_, AppState>, on: bool) {
+    let mut held = state.keep_awake.lock().unwrap_or_else(|e| e.into_inner());
+    if !on {
+        *held = None;
+    } else if held.is_none() {
+        match keepawake::Builder::default()
+            .display(true)
+            .idle(true)
+            .reason("Cooking mode is open")
+            .app_name("Recipio")
+            .app_reverse_domain("io.github.bvdon.recipio")
+            .create()
+        {
+            Ok(awake) => *held = Some(awake),
+            Err(e) => log::warn!("could not keep the screen awake: {e}"),
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn library_stats(state: State<'_, AppState>) -> AppResult<LibraryStats> {
+    backup::stats(&state)
+}
+
+/// Writes the whole library to a zip at `path` (chosen in a save dialog). Progress
+/// arrives as `backup://progress` events.
+#[tauri::command]
+pub async fn export_backup(app: AppHandle, path: String, include_videos: bool) -> AppResult<()> {
+    blocking(app, move |app, state| {
+        backup::export(state, Path::new(&path), include_videos, &|p| {
+            let _ = app.emit(backup::EVENT, p);
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn cancel_backup(state: State<'_, AppState>) {
+    state.backups.cancel();
+}
+
+/// Reads a backup's summary so the UI can confirm before restoring.
+#[tauri::command]
+pub async fn inspect_backup(path: String) -> AppResult<BackupSummary> {
+    let path = PathBuf::from(path);
+    tauri::async_runtime::spawn_blocking(move || backup::inspect(&path))
+        .await
+        .map_err(|e| AppError::Io(std::io::Error::other(e)))?
+}
+
+/// Replaces the whole library with a backup (the UI warns first). Returns the number of
+/// recipes restored.
+#[tauri::command]
+pub async fn restore_backup(app: AppHandle, path: String) -> AppResult<u32> {
+    blocking(app, move |app, state| {
+        backup::restore(state, Path::new(&path), &|p| {
+            let _ = app.emit(backup::EVENT, p);
+        })
+    })
+    .await
+}
+
+/// Runs file-heavy work off the async runtime.
+async fn blocking<T: Send + 'static>(
+    app: AppHandle,
+    work: impl FnOnce(&AppHandle, &AppState) -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    tauri::async_runtime::spawn_blocking(move || work(&app, &app.state::<AppState>()))
+        .await
+        .map_err(|e| AppError::Io(std::io::Error::other(e)))?
+}
+
+#[cfg(test)]
+mod tests {
+    /// Holds a keep-awake for a few seconds: `cargo test -- --ignored live_keep_awake`
+    /// (check with `pmset -g assertions` on macOS meanwhile).
+    #[test]
+    #[ignore]
+    fn live_keep_awake() {
+        let _awake = keepawake::Builder::default()
+            .display(true)
+            .idle(true)
+            .reason("Cooking mode is open")
+            .create()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(8));
+    }
 }

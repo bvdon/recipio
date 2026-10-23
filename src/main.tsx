@@ -9,6 +9,7 @@ import RecipeView from "./pages/RecipeView";
 import RecipeEditor from "./pages/RecipeEditor";
 import Organize from "./pages/Organize";
 import Settings from "./pages/Settings";
+import CookingMode from "./pages/CookingMode";
 import "./styles.css";
 
 window.addEventListener("error", (e) => void logError(`ui: ${e.message}`));
@@ -35,6 +36,8 @@ const router = createHashRouter([
       { path: "settings", element: <Settings /> },
     ],
   },
+  // Full screen, without the app's top bar.
+  { path: "recipes/:id/cook", element: <CookingMode /> },
 ]);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

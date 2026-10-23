@@ -220,8 +220,20 @@ pub fn upsert(
     photo_path: Option<&str>,
     now: &str,
 ) -> AppResult<()> {
-    let input = &recipe.input;
     let tx = conn.transaction()?;
+    write(&tx, recipe, photo_path, now)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// The body of `upsert`, inside a caller's transaction (backup restore writes many).
+pub fn write(
+    tx: &Transaction,
+    recipe: &ValidRecipe,
+    photo_path: Option<&str>,
+    now: &str,
+) -> AppResult<()> {
+    let input = &recipe.input;
     let n = &input.nutrition;
     tx.execute(
         "INSERT INTO recipes (id, title, description, servings, prep_minutes, cook_minutes,
@@ -287,11 +299,9 @@ pub fn upsert(
         }
     }
 
-    labels::set_for_recipe(&tx, LabelKind::Category, &input.id, &input.categories)?;
-    labels::set_for_recipe(&tx, LabelKind::Tag, &input.id, &input.tags)?;
-    reindex(&tx, recipe)?;
-    tx.commit()?;
-    Ok(())
+    labels::set_for_recipe(tx, LabelKind::Category, &input.id, &input.categories)?;
+    labels::set_for_recipe(tx, LabelKind::Tag, &input.id, &input.tags)?;
+    reindex(tx, recipe)
 }
 
 /// Deletes a recipe and returns the media paths it owned, or `None` if it didn't exist.

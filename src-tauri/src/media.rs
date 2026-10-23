@@ -16,7 +16,10 @@ pub const PROTOCOL: &str = "recipio-media";
 const PHOTOS: &str = "photos";
 const VIDEOS: &str = "videos";
 const TMP: &str = "tmp";
-const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "avif"];
+/// Backup restore: new files are unpacked here, then swapped in for `photos/`+`videos/`.
+const RESTORE: &str = "restore";
+const RESTORE_OLD: &str = "restore-old";
+pub const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "avif"];
 const MAX_PHOTO_BYTES: u64 = 50 * 1024 * 1024;
 /// Largest body returned for one range request; players ask for the rest as needed.
 const MAX_RANGE_BYTES: u64 = 4 * 1024 * 1024;
@@ -52,6 +55,46 @@ impl MediaDir {
         }
         let path = self.root.join(rel).canonicalize().ok()?;
         (path.starts_with(&self.root) && path.is_file()).then_some(path)
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Size of a media file, if it exists.
+    pub fn size_of(&self, rel: &str) -> Option<u64> {
+        self.resolve(rel)
+            .and_then(|p| fs::metadata(p).ok())
+            .map(|m| m.len())
+    }
+
+    /// An empty `restore/` folder with `photos/` and `videos/` to unpack a backup into.
+    pub fn begin_restore(&self) -> std::io::Result<PathBuf> {
+        let dir = self.root.join(RESTORE);
+        let _ = fs::remove_dir_all(&dir);
+        for sub in [PHOTOS, VIDEOS] {
+            fs::create_dir_all(dir.join(sub))?;
+        }
+        Ok(dir)
+    }
+
+    /// Replaces `photos/` and `videos/` with the unpacked backup (folder renames on the
+    /// same disk, so it's quick), then deletes the old files.
+    pub fn finish_restore(&self) -> std::io::Result<()> {
+        let old = self.root.join(RESTORE_OLD);
+        let _ = fs::remove_dir_all(&old);
+        fs::create_dir_all(&old)?;
+        for sub in [PHOTOS, VIDEOS] {
+            fs::rename(self.root.join(sub), old.join(sub))?;
+            fs::rename(self.root.join(RESTORE).join(sub), self.root.join(sub))?;
+        }
+        let _ = fs::remove_dir_all(&old);
+        let _ = fs::remove_dir_all(self.root.join(RESTORE));
+        Ok(())
+    }
+
+    pub fn abandon_restore(&self) {
+        let _ = fs::remove_dir_all(self.root.join(RESTORE));
     }
 
     /// Copies a user-chosen image into the staging area and returns its relative path.
@@ -168,8 +211,12 @@ impl MediaDir {
     /// Startup housekeeping: empties the staging area and deletes photo/video files that
     /// no recipe references (e.g. left behind by a crash).
     pub fn sweep(&self, referenced: &HashSet<String>) {
-        let _ = fs::remove_dir_all(self.root.join(TMP));
-        let _ = fs::create_dir_all(self.root.join(TMP));
+        for leftover in [TMP, RESTORE, RESTORE_OLD] {
+            let _ = fs::remove_dir_all(self.root.join(leftover));
+        }
+        for sub in [PHOTOS, VIDEOS, TMP] {
+            let _ = fs::create_dir_all(self.root.join(sub));
+        }
         for sub in [PHOTOS, VIDEOS] {
             let Ok(entries) = fs::read_dir(self.root.join(sub)) else {
                 continue;

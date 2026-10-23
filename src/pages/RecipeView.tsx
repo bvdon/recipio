@@ -2,7 +2,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, Clock, ExternalLink, Pencil, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Clock, CookingPot, ExternalLink, Pencil, Trash2, Users } from "lucide-react";
 import { api, errorMessage, mediaUrl, queryKeys } from "../api";
 import type { Label } from "../bindings/Label";
 import type { Recipe } from "../bindings/Recipe";
@@ -56,6 +56,9 @@ export default function RecipeView() {
           <ArrowLeft size={16} aria-hidden /> Recipes
         </Link>
         <div className="actions">
+          <Link to={`/recipes/${r.id}/cook`} className="button primary">
+            <CookingPot size={16} aria-hidden /> Start cooking
+          </Link>
           <Link to={`/recipes/${r.id}/edit`} className="button">
             <Pencil size={16} aria-hidden /> Edit
           </Link>

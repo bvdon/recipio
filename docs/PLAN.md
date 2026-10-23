@@ -236,6 +236,40 @@ structured data, say so and keep just the URL.
   `RECIPIO_IMPORT_URLS="<url> <url>" cargo test -- --ignored live_import --nocapture`.
   Checked 2026-10-23 against 13 real recipe sites (all read correctly) and a page without a recipe.
 
+### Cooking mode (as built)
+
+- Route `/recipes/:id/cook`, outside the app layout (no top bar); "Start cooking" on the
+  recipe page. On open: OS full screen (`setFullscreen`, undone on exit unless the
+  window was already full screen) and `set_keep_awake(true)`.
+- Keep-awake: `keepawake` crate, display + idle sleep, held in `AppState` until cooking
+  mode closes (or the app exits). The command is synchronous on purpose: Tauri runs sync
+  commands on the main thread, and Windows' `SetThreadExecutionState` belongs to the
+  calling thread. Failure is logged only (the screen may dim).
+- One step at a time in large text, "Step n of m", Previous/Next (Done on the last step),
+  a clickable dot per step. Keys: ← → ↑ ↓ PageUp/PageDown move, Home/End jump, I toggles
+  the ingredients panel, Esc exits. Ingredients panel (side, stacked on narrow windows)
+  with tick-off checkboxes; ticks aren't saved.
+
+### Backup (as built, `backup.rs`)
+
+- Zip with `recipio-backup.json` (own format: `format`, `version` 1, app version,
+  created_at, all categories and tags incl. unused, recipes with numeric quantities,
+  timestamps, video status, media entry names) plus `media/photos/…` and
+  `media/videos/…` stored uncompressed (they're already compressed). Written to
+  `<name>.part`, renamed when complete; exports can be cancelled. Videos are optional
+  (Q19).
+- Restore = full replace after a warning that shows both libraries' counts (Q5). Order:
+  read + check the manifest (each recipe through `recipes::validate`; media entry names
+  must be exactly `media/photos/<uuid>.<photo ext>` / `media/videos/<uuid>.mp4`, nothing
+  else is unpacked) → disk-space check → unpack to `media/restore/` (never more bytes
+  than the zip declares) → one DB transaction replaces everything (labels, recipes, FTS)
+  keeping ids and timestamps → swap `photos/`+`videos/` by folder renames. A failure
+  before the swap leaves the library untouched. Leftover `restore*/` folders are removed
+  at startup. Refused while a video download is running (Q20).
+- Video status on restore: file included → ready; left out but was ready/missing →
+  missing (Re-download offered); failed stays failed.
+- Newer backup versions are refused with "update the app first".
+
 ### Other
 
 - Screen wake in cooking mode: `keepawake` crate (IOKit / SetThreadExecutionState /
@@ -321,3 +355,5 @@ test instructions for the owner, and a stop for approval.
 | Q16 | Web import User-Agent                                                               | Browser-like (Safari) headers; many recipe sites refuse requests that name themselves as an app                                         |
 | Q17 | Web import categories/keywords                                                      | Matched to existing categories/tags only; never creates new labels from a page                                                          |
 | Q18 | Video named by an imported page                                                     | Fills the editor's Video field; nothing downloads until the user clicks Download                                                        |
+| Q19 | Videos in backups                                                                   | Optional ("Include downloaded videos", on by default); left-out videos restore as "missing" with Re-download                            |
+| Q20 | Restore during a video download                                                     | Refused with a message (the download would write into the replaced library)                                                             |

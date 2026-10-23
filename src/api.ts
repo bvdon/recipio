@@ -11,6 +11,8 @@ import type { Package } from "./bindings/Package";
 import type { ToolInfo } from "./bindings/ToolInfo";
 import type { VideoJob } from "./bindings/VideoJob";
 import type { WebImport } from "./bindings/WebImport";
+import type { BackupSummary } from "./bindings/BackupSummary";
+import type { LibraryStats } from "./bindings/LibraryStats";
 
 export type AppError = { kind: string; message: string };
 
@@ -47,12 +49,20 @@ export const api = {
   toolsStatus: () => invoke<ToolInfo[]>("tools_status"),
   installTools: (update: boolean) => invoke<Package[]>("install_tools", { update }),
   importRecipe: (url: string) => invoke<WebImport>("import_recipe", { url }),
+  setKeepAwake: (on: boolean) => invoke<void>("set_keep_awake", { on }),
+  libraryStats: () => invoke<LibraryStats>("library_stats"),
+  exportBackup: (path: string, includeVideos: boolean) =>
+    invoke<void>("export_backup", { path, includeVideos }),
+  cancelBackup: () => invoke<void>("cancel_backup"),
+  inspectBackup: (path: string) => invoke<BackupSummary>("inspect_backup", { path }),
+  restoreBackup: (path: string) => invoke<number>("restore_backup", { path }),
 };
 
 /** Tauri event names (see `video.rs` and `commands::install_tools`). */
 export const events = {
   videoJob: "video://job",
   toolsProgress: "tools://progress",
+  backupProgress: "backup://progress",
 };
 
 /** URL for a file in the media folder. `version` busts the webview cache after a replace. */
@@ -71,4 +81,5 @@ export const queryKeys = {
   allLabels: ["labels"] as const,
   videoJob: (recipeId: string) => ["video-job", recipeId] as const,
   tools: ["tools"] as const,
+  libraryStats: ["library-stats"] as const,
 };

@@ -108,6 +108,11 @@ impl Videos {
             .is_some_and(|j| j.state.stage.is_running())
     }
 
+    /// Whether any download is running (a backup restore waits for none).
+    pub fn any_running(&self) -> bool {
+        self.jobs().values().any(|j| j.state.stage.is_running())
+    }
+
     /// Asks a running job to stop; it reports `Cancelled` once its process is gone.
     pub fn cancel(&self, recipe_id: &str) {
         if let Some(job) = self.jobs().get(recipe_id) {
