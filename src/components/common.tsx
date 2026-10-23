@@ -1,4 +1,5 @@
 import { AlertCircle, ImageOff, Star } from "lucide-react";
+import type { AppError } from "../api";
 
 export function ErrorBanner({ message }: { message: string }) {
   return (
@@ -60,3 +61,18 @@ export function formatMinutes(m: number | null): string | null {
   if (h === 0) return `${min} min`;
   return min === 0 ? `${h} h` : `${h} h ${min} min`;
 }
+
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** File size for display: "850 KB", "12 MB", "1.4 GB". */
+export function formatBytes(n: number): string {
+  if (n === 0) return "0 KB";
+  if (n < 1e6) return `${Math.max(1, Math.round(n / 1e3))} KB`;
+  if (n < 1e9) return `${Math.round(n / 1e6)} MB`;
+  return `${(n / 1e9).toFixed(1)} GB`;
+}
+
+export const isCancelled = (e: unknown) => (e as AppError | null)?.kind === "cancelled";
+
+/** Last part of a file path, for messages. */
+export const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;

@@ -1,6 +1,10 @@
 //! Library backup: one zip holding `recipio-backup.json` (every recipe and label) plus the
 //! photo and video files under `media/`. Restoring replaces the whole library (PLAN.md Q5).
 //!
+//! Sharing uses the same zip layout for chosen recipes (`.recipio` files, format
+//! `recipio-share`, no personal ratings). Adding shared recipes only ever adds: recipes
+//! already in the library come in as copies with new ids.
+//!
 //! The JSON is its own versioned format (not a table dump), so backups stay readable
 //! after schema migrations.
 
@@ -17,7 +21,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::AppState;
-use crate::db::{labels, recipes};
+use crate::db::{bookmarks, labels, recipes};
 use crate::error::{AppError, AppResult};
 use crate::media::PHOTO_EXTENSIONS;
 use crate::models::{
@@ -28,6 +32,7 @@ use crate::quantity;
 pub const EVENT: &str = "backup://progress";
 const MANIFEST: &str = "recipio-backup.json";
 const FORMAT: &str = "recipio-backup";
+const SHARE_FORMAT: &str = "recipio-share";
 const VERSION: u32 = 1;
 const MAX_MANIFEST_BYTES: u64 = 200 * 1024 * 1024;
 /// Free space kept in reserve when unpacking.
@@ -56,6 +61,32 @@ pub struct BackupSummary {
     pub recipes: u32,
     pub photos: u32,
     pub videos: u32,
+}
+
+/// One recipe in a share (or backup) file, for choosing what to add.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct SharedRecipe {
+    pub id: String,
+    pub title: String,
+    pub has_photo: bool,
+    pub has_video: bool,
+    /// A recipe with this id is already in the library (it would be added as a copy).
+    pub in_library: bool,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+pub struct SharePreview {
+    pub created_at: String,
+    pub recipes: Vec<SharedRecipe>,
+}
+
+/// Backup = whole library, restored by replacing; share = chosen recipes, added.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Kind {
+    Backup,
+    Share,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -109,12 +140,21 @@ struct BackupRecipe {
     tags: Vec<String>,
     created_at: String,
     updated_at: String,
+    #[serde(default)]
+    bookmarks: Vec<BackupBookmark>,
     /// Status in the exported library; a video left out of the backup restores as
     /// `missing` so Re-download is offered.
     video_status: VideoStatus,
     /// Zip entry names, `media/photos/<id>.<ext>` and `media/videos/<id>.mp4`.
     photo: Option<String>,
     video: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BackupBookmark {
+    seconds: u32,
+    #[serde(default)]
+    label: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -188,8 +228,9 @@ impl Progress<'_> {
     }
 }
 
-pub fn stats(state: &AppState) -> AppResult<LibraryStats> {
-    let all = all_recipes(state)?;
+/// Contents of the library, or of the recipes in `ids`.
+pub fn stats(state: &AppState, ids: Option<&[String]>) -> AppResult<LibraryStats> {
+    let all = all_recipes(state, ids)?;
     let mut s = LibraryStats {
         recipes: all.len() as u32,
         photos: 0,
@@ -210,13 +251,17 @@ pub fn stats(state: &AppState) -> AppResult<LibraryStats> {
     Ok(s)
 }
 
-fn all_recipes(state: &AppState) -> AppResult<Vec<Recipe>> {
+/// Every recipe (by title), or only those in `only`.
+fn all_recipes(state: &AppState, only: Option<&[String]>) -> AppResult<Vec<Recipe>> {
     let conn = state.db();
     let ids: Vec<String> = conn
         .prepare("SELECT id FROM recipes ORDER BY title COLLATE NOCASE, id")?
         .query_map([], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
-    ids.iter().map(|id| recipes::get(&conn, id)).collect()
+    ids.iter()
+        .filter(|id| only.is_none_or(|o| o.contains(id)))
+        .map(|id| recipes::get(&conn, id))
+        .collect()
 }
 
 fn ready_video(r: &Recipe) -> Option<&str> {
@@ -225,16 +270,27 @@ fn ready_video(r: &Recipe) -> Option<&str> {
         .flatten()
 }
 
-/// Writes the library to `dest` (via a `.part` file, renamed when complete).
+/// Writes the library (backup) or the recipes in `ids` (share) to `dest`, via a `.part`
+/// file renamed when complete.
 pub fn export(
     state: &AppState,
     dest: &Path,
+    kind: Kind,
+    ids: Option<&[String]>,
     include_videos: bool,
     report: &dyn Fn(BackupProgress),
 ) -> AppResult<()> {
     let _busy = state.backups.start()?;
-    let all = all_recipes(state)?;
-    let (categories, tags) = {
+    let all = all_recipes(state, ids)?;
+    if all.is_empty() && kind == Kind::Share {
+        return Err(AppError::Validation(
+            "Choose at least one recipe to share.".into(),
+        ));
+    }
+    // A share carries only the labels its recipes use (they're on each recipe).
+    let (categories, tags) = if kind == Kind::Share {
+        (Vec::new(), Vec::new())
+    } else {
         let conn = state.db();
         let names = |kind| -> AppResult<Vec<String>> {
             Ok(labels::list(&conn, kind)?
@@ -267,6 +323,14 @@ pub fn export(
             photo,
             video,
             video_status: r.video_status,
+            bookmarks: r
+                .bookmarks
+                .into_iter()
+                .map(|b| BackupBookmark {
+                    seconds: b.seconds,
+                    label: b.label,
+                })
+                .collect(),
             ingredients: r
                 .ingredients
                 .into_iter()
@@ -286,7 +350,8 @@ pub fn export(
             prep_minutes: r.prep_minutes,
             cook_minutes: r.cook_minutes,
             notes: r.notes,
-            rating: r.rating,
+            // Star ratings are personal; a friend's copy starts unrated.
+            rating: r.rating.filter(|_| kind == Kind::Backup),
             youtube_url: r.youtube_url,
             source_url: r.source_url,
             nutrition: r.nutrition,
@@ -300,7 +365,11 @@ pub fn export(
     let count = entries.len();
     let now = chrono::Utc::now();
     let manifest = serde_json::to_vec_pretty(&Manifest {
-        format: FORMAT.into(),
+        format: match kind {
+            Kind::Backup => FORMAT,
+            Kind::Share => SHARE_FORMAT,
+        }
+        .into(),
         version: VERSION,
         app_version: env!("CARGO_PKG_VERSION").into(),
         created_at: now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
@@ -391,7 +460,30 @@ fn not_a_backup(detail: impl std::fmt::Display) -> AppError {
     AppError::Validation("That file isn’t a Recipio backup.".into())
 }
 
+fn not_a_share(detail: impl std::fmt::Display) -> AppError {
+    log::warn!("not a share file: {detail}");
+    AppError::Validation("That file isn’t a Recipio recipe file.".into())
+}
+
+/// Opens a backup (restore) or a share or backup file (adding recipes from it).
 fn open(path: &Path) -> AppResult<(ZipArchive<File>, Manifest)> {
+    let (zip, m) = open_any(path)?;
+    if m.format != FORMAT {
+        return Err(not_a_backup("wrong format"));
+    }
+    Ok((zip, m))
+}
+
+fn open_shared(path: &Path) -> AppResult<(ZipArchive<File>, Manifest)> {
+    match open_any(path) {
+        Err(AppError::Validation(m)) if m.contains("isn’t a Recipio backup") => {
+            Err(not_a_share("unreadable"))
+        }
+        other => other,
+    }
+}
+
+fn open_any(path: &Path) -> AppResult<(ZipArchive<File>, Manifest)> {
     let mut zip = ZipArchive::new(File::open(path)?).map_err(not_a_backup)?;
     let mut entry = zip.by_name(MANIFEST).map_err(not_a_backup)?;
     if entry.size() > MAX_MANIFEST_BYTES {
@@ -404,7 +496,7 @@ fn open(path: &Path) -> AppResult<(ZipArchive<File>, Manifest)> {
         .map_err(not_a_backup)?;
     drop(entry);
     let manifest: Manifest = serde_json::from_slice(&json).map_err(not_a_backup)?;
-    if manifest.format != FORMAT {
+    if manifest.format != FORMAT && manifest.format != SHARE_FORMAT {
         return Err(not_a_backup("wrong format"));
     }
     if manifest.version > VERSION {
@@ -439,9 +531,37 @@ struct Restored {
     created_at: String,
     updated_at: String,
     video_status: VideoStatus,
-    /// (zip entry, media-relative path)
+    bookmarks: Vec<(u32, String)>,
+    /// (zip entry, file extension)
     photo: Option<(String, String)>,
-    video: Option<(String, String)>,
+    /// zip entry
+    video: Option<String>,
+}
+
+impl Restored {
+    fn photo_rel(&self) -> Option<String> {
+        let id = &self.valid.input.id;
+        self.photo
+            .as_ref()
+            .map(|(_, ext)| format!("photos/{id}.{ext}"))
+    }
+
+    fn video_rel(&self) -> Option<String> {
+        let id = &self.valid.input.id;
+        self.video.as_ref().map(|_| format!("videos/{id}.mp4"))
+    }
+
+    /// Video path and status to store: a restored file is ready; a video that was
+    /// downloaded but isn't in the file is missing (Re-download is offered).
+    fn video_state(&self, kind: Kind) -> (Option<String>, VideoStatus) {
+        match (self.video_rel(), self.video_status) {
+            (Some(rel), _) => (Some(rel), VideoStatus::Ready),
+            (None, _) if kind == Kind::Share => (None, VideoStatus::None),
+            (None, VideoStatus::Ready | VideoStatus::Missing) => (None, VideoStatus::Missing),
+            (None, VideoStatus::Downloading | VideoStatus::Failed) => (None, VideoStatus::Failed),
+            (None, VideoStatus::None) => (None, VideoStatus::None),
+        }
+    }
 }
 
 fn check_recipe(r: BackupRecipe) -> AppResult<Restored> {
@@ -512,7 +632,7 @@ fn check_recipe(r: BackupRecipe) -> AppResult<Restored> {
         let ext = entry.strip_prefix(&format!("media/photos/{id}."))?;
         PHOTO_EXTENSIONS
             .contains(&ext)
-            .then(|| (entry.clone(), format!("photos/{id}.{ext}")))
+            .then(|| (entry.clone(), ext.to_string()))
     });
     let video = r.video.filter(|e| *e == format!("media/videos/{id}.mp4"));
     let timestamp = |t: String| {
@@ -523,8 +643,13 @@ fn check_recipe(r: BackupRecipe) -> AppResult<Restored> {
         }
     };
     Ok(Restored {
-        video: video.map(|e| (e, format!("videos/{id}.mp4"))),
+        video,
         photo,
+        bookmarks: r
+            .bookmarks
+            .into_iter()
+            .map(|b| (b.seconds, b.label))
+            .collect(),
         video_status: r.video_status,
         created_at: timestamp(r.created_at),
         updated_at: timestamp(r.updated_at),
@@ -554,27 +679,8 @@ pub fn restore(state: &AppState, path: &Path, report: &dyn Fn(BackupProgress)) -
         restored.push(r);
     }
 
-    // Sizes come from the zip directory; unpacking never writes more than declared.
-    let mut total = 0u64;
-    for r in &mut restored {
-        for media in [&mut r.photo, &mut r.video] {
-            match media.as_ref().map(|(entry, _)| zip.by_name(entry)) {
-                Some(Ok(f)) => total += f.size(),
-                Some(Err(e)) => {
-                    log::warn!("backup entry missing: {e}");
-                    *media = None;
-                }
-                None => {}
-            }
-        }
-    }
-    let free = fs4::available_space(state.media.root())?;
-    if free < total + SPARE_BYTES {
-        return Err(AppError::Validation(format!(
-            "There isn’t enough free disk space to restore this backup (it needs about {} MB).",
-            (total + SPARE_BYTES) / 1_000_000
-        )));
-    }
+    let total = check_entries(&mut zip, &mut restored);
+    ensure_space(state, total)?;
 
     let dir = state.media.begin_restore()?;
     let mut progress = Progress {
@@ -586,24 +692,11 @@ pub fn restore(state: &AppState, path: &Path, report: &dyn Fn(BackupProgress)) -
     let unpacked = (|| -> AppResult<()> {
         let mut buf = vec![0; CHUNK];
         for r in &restored {
-            for (entry, rel) in [&r.photo, &r.video].into_iter().flatten() {
-                let mut src = zip.by_name(entry).map_err(zip_error)?;
-                let size = src.size();
-                let mut out = BufWriter::new(File::create(dir.join(rel))?);
-                let mut written = 0u64;
-                loop {
-                    let n = src.read(&mut buf)?;
-                    if n == 0 {
-                        break;
-                    }
-                    written += n as u64;
-                    if written > size {
-                        return Err(not_a_backup(format!("{entry} is larger than declared")));
-                    }
-                    out.write_all(&buf[..n])?;
-                    progress.add(n as u64);
-                }
-                out.flush()?;
+            if let (Some((entry, _)), Some(rel)) = (&r.photo, r.photo_rel()) {
+                unpack(&mut zip, entry, &dir.join(rel), &mut buf, &mut progress)?;
+            }
+            if let (Some(entry), Some(rel)) = (&r.video, r.video_rel()) {
+                unpack(&mut zip, entry, &dir.join(rel), &mut buf, &mut progress)?;
             }
         }
         Ok(())
@@ -630,16 +723,9 @@ pub fn restore(state: &AppState, path: &Path, report: &dyn Fn(BackupProgress)) -
             }
         }
         for r in &restored {
-            let photo = r.photo.as_ref().map(|(_, rel)| rel.as_str());
-            recipes::write(&tx, &r.valid, photo, &r.updated_at)?;
-            let (video, status) = match (&r.video, r.video_status) {
-                (Some((_, rel)), _) => (Some(rel.as_str()), VideoStatus::Ready),
-                (None, VideoStatus::Ready | VideoStatus::Missing) => (None, VideoStatus::Missing),
-                (None, VideoStatus::Downloading | VideoStatus::Failed) => {
-                    (None, VideoStatus::Failed)
-                }
-                (None, VideoStatus::None) => (None, VideoStatus::None),
-            };
+            let photo = r.photo_rel();
+            recipes::write(&tx, &r.valid, photo.as_deref(), &r.updated_at)?;
+            let (video, status) = r.video_state(Kind::Backup);
             tx.execute(
                 "UPDATE recipes SET created_at = ?2, updated_at = ?3, video_path = ?4,
                                     video_status = ?5
@@ -652,6 +738,7 @@ pub fn restore(state: &AppState, path: &Path, report: &dyn Fn(BackupProgress)) -
                     status.as_str()
                 ],
             )?;
+            bookmarks::insert_all(&tx, &r.valid.input.id, &r.bookmarks)?;
         }
         tx.commit()?;
         Ok(())
@@ -669,6 +756,194 @@ pub fn restore(state: &AppState, path: &Path, report: &dyn Fn(BackupProgress)) -
         path.display()
     );
     Ok(restored.len() as u32)
+}
+
+/// Drops media entries the zip doesn't actually have; returns the bytes to unpack (from
+/// the zip directory).
+fn check_entries(zip: &mut ZipArchive<File>, restored: &mut [Restored]) -> u64 {
+    let mut total = 0;
+    let mut size = |entry: &str| {
+        zip.by_name(entry)
+            .map(|f| f.size())
+            .inspect_err(|e| log::warn!("entry {entry} missing: {e}"))
+            .ok()
+    };
+    for r in restored {
+        match r.photo.as_ref().map(|(entry, _)| size(entry)) {
+            Some(Some(n)) => total += n,
+            Some(None) => r.photo = None,
+            None => {}
+        }
+        match r.video.as_deref().map(&mut size) {
+            Some(Some(n)) => total += n,
+            Some(None) => r.video = None,
+            None => {}
+        }
+    }
+    total
+}
+
+fn ensure_space(state: &AppState, bytes: u64) -> AppResult<()> {
+    let free = fs4::available_space(state.media.root())?;
+    if free < bytes + SPARE_BYTES {
+        return Err(AppError::Validation(format!(
+            "There isn’t enough free disk space (this needs about {} MB).",
+            (bytes + SPARE_BYTES) / 1_000_000
+        )));
+    }
+    Ok(())
+}
+
+/// Copies one zip entry to `dest`, never writing more than the zip declares.
+fn unpack(
+    zip: &mut ZipArchive<File>,
+    entry: &str,
+    dest: &Path,
+    buf: &mut [u8],
+    progress: &mut Progress,
+) -> AppResult<()> {
+    let mut src = zip.by_name(entry).map_err(zip_error)?;
+    let size = src.size();
+    let mut out = BufWriter::new(File::create(dest)?);
+    let mut written = 0u64;
+    loop {
+        let n = src.read(buf)?;
+        if n == 0 {
+            break;
+        }
+        written += n as u64;
+        if written > size {
+            return Err(not_a_backup(format!("{entry} is larger than declared")));
+        }
+        out.write_all(&buf[..n])?;
+        progress.add(n as u64);
+    }
+    out.flush()?;
+    Ok(())
+}
+
+/// What a share (or backup) file holds, marking recipes already in the library.
+pub fn preview(state: &AppState, path: &Path) -> AppResult<SharePreview> {
+    let (mut zip, m) = open_shared(path)?;
+    let conn = state.db();
+    let mut exists = conn.prepare("SELECT 1 FROM recipes WHERE id = ?1")?;
+    let mut present = |name: &Option<String>| name.as_ref().is_some_and(|n| zip.by_name(n).is_ok());
+    let mut recipes = Vec::with_capacity(m.recipes.len());
+    for r in &m.recipes {
+        recipes.push(SharedRecipe {
+            id: r.id.clone(),
+            title: r.title.clone(),
+            has_photo: present(&r.photo),
+            has_video: present(&r.video),
+            in_library: exists.exists([&r.id])?,
+        });
+    }
+    Ok(SharePreview {
+        created_at: m.created_at,
+        recipes,
+    })
+}
+
+/// Adds the recipes in `ids` from a share (or backup) file. Nothing in the library is
+/// changed or removed; a recipe whose id is taken gets a new id. Returns how many were
+/// added.
+pub fn add_shared(
+    state: &AppState,
+    path: &Path,
+    ids: &[String],
+    report: &dyn Fn(BackupProgress),
+) -> AppResult<u32> {
+    let _busy = state.backups.start()?;
+    let (mut zip, manifest) = open_shared(path)?;
+    let mut chosen = Vec::new();
+    for r in manifest.recipes.into_iter().filter(|r| ids.contains(&r.id)) {
+        chosen.push(check_recipe(r)?);
+    }
+    if chosen.is_empty() {
+        return Err(AppError::Validation(
+            "Choose at least one recipe to add.".into(),
+        ));
+    }
+    {
+        let conn = state.db();
+        let mut exists = conn.prepare("SELECT 1 FROM recipes WHERE id = ?1")?;
+        let mut taken = HashSet::new();
+        for r in &mut chosen {
+            if exists.exists([&r.valid.input.id])? || !taken.insert(r.valid.input.id.clone()) {
+                r.valid.input.id = uuid::Uuid::new_v4().to_string();
+            }
+        }
+    }
+
+    let total = check_entries(&mut zip, &mut chosen);
+    ensure_space(state, total)?;
+    let mut progress = Progress {
+        done: 0,
+        total,
+        last: None,
+        report,
+    };
+    // Unpack into the staging area, then move into place under the (new) ids.
+    let mut placed: Vec<String> = Vec::new();
+    let moved = (|| -> AppResult<()> {
+        let mut buf = vec![0; CHUNK];
+        let tmp = state.media.tmp_dir();
+        for r in &chosen {
+            let id = &r.valid.input.id;
+            if let (Some((entry, _)), Some(rel)) = (&r.photo, r.photo_rel()) {
+                let ext = rel.rsplit('.').next().unwrap_or_default();
+                let staged = format!("tmp/{}.{ext}", uuid::Uuid::new_v4());
+                unpack(
+                    &mut zip,
+                    entry,
+                    &state.media.root().join(&staged),
+                    &mut buf,
+                    &mut progress,
+                )?;
+                placed.push(state.media.commit_photo(id, &staged)?);
+            }
+            if let Some(entry) = &r.video {
+                let file = tmp.join(format!("{id}.share.mp4"));
+                unpack(&mut zip, entry, &file, &mut buf, &mut progress)?;
+                placed.push(state.media.commit_video(id, &file)?);
+            }
+        }
+        Ok(())
+    })();
+    let undo = |placed: &[String]| {
+        for rel in placed {
+            state.media.remove(rel);
+        }
+    };
+    if let Err(e) = moved {
+        undo(&placed);
+        return Err(e);
+    }
+
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let written = (|| -> AppResult<()> {
+        let mut conn = state.db();
+        let tx = conn.transaction()?;
+        for r in &chosen {
+            let id = &r.valid.input.id;
+            recipes::write(&tx, &r.valid, r.photo_rel().as_deref(), &now)?;
+            let (video, status) = r.video_state(Kind::Share);
+            recipes::set_video(&tx, id, video.as_deref(), status, None)?;
+            bookmarks::insert_all(&tx, id, &r.bookmarks)?;
+        }
+        tx.commit()?;
+        Ok(())
+    })();
+    if let Err(e) = written {
+        undo(&placed);
+        return Err(e);
+    }
+    log::info!(
+        "added {} shared recipes from {}",
+        chosen.len(),
+        path.display()
+    );
+    Ok(chosen.len() as u32)
 }
 
 #[cfg(test)]
@@ -759,12 +1034,15 @@ mod tests {
         add(&source, B, "Bread", false);
         labels::create(&source.db(), LabelKind::Tag, "unused").unwrap();
 
-        let stats = stats(&source).unwrap();
+        let stats = stats(&source, None).unwrap();
         assert_eq!((stats.recipes, stats.photos, stats.videos), (2, 2, 1));
 
         let file = tmp.path().join("backup.zip");
         let reports = Mutex::new(Vec::new());
-        export(&source, &file, true, &|p| reports.lock().unwrap().push(p)).unwrap();
+        export(&source, &file, Kind::Backup, None, true, &|p| {
+            reports.lock().unwrap().push(p)
+        })
+        .unwrap();
         assert!(!part_path(&file).exists());
         let last = reports.lock().unwrap().last().cloned().unwrap();
         assert_eq!(last.done, last.total);
@@ -818,7 +1096,7 @@ mod tests {
         let source = state(&tmp.path().join("one"));
         add(&source, A, "Apple pie", true);
         let file = tmp.path().join("backup.zip");
-        export(&source, &file, false, &|_| {}).unwrap();
+        export(&source, &file, Kind::Backup, None, false, &|_| {}).unwrap();
         assert_eq!(inspect(&file).unwrap().videos, 0);
 
         let target = state(&tmp.path().join("two"));
@@ -915,5 +1193,135 @@ mod tests {
         add(&target, C, "Keep me", false);
         assert!(restore(&target, &path, &|_| {}).is_err());
         assert!(recipes::get(&target.db(), C).is_ok());
+    }
+
+    #[test]
+    fn shares_chosen_recipes_and_adds_them_as_new() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mine = state(&tmp.path().join("mine"));
+        add(&mine, A, "Apple pie", true);
+        add(&mine, B, "Bread", false);
+        bookmarks::add(&mine.db(), A, 75, "Crust", None).unwrap();
+
+        let file = tmp.path().join("for friend.recipio");
+        let ids = vec![A.to_string()];
+        export(&mine, &file, Kind::Share, Some(&ids), false, &|_| {}).unwrap();
+        assert!(
+            inspect(&file).is_err(),
+            "a share file can't be restored over a library"
+        );
+
+        // A friend's library already has their own recipe C.
+        let friend = state(&tmp.path().join("friend"));
+        add(&friend, C, "Soup", false);
+        let shown = preview(&friend, &file).unwrap();
+        assert_eq!(shown.recipes.len(), 1);
+        let p = &shown.recipes[0];
+        assert_eq!(
+            (p.title.as_str(), p.has_photo, p.has_video, p.in_library),
+            ("Apple pie", true, false, false)
+        );
+
+        assert_eq!(add_shared(&friend, &file, &ids, &|_| {}).unwrap(), 1);
+        let conn = friend.db();
+        assert!(recipes::get(&conn, C).is_ok(), "nothing removed");
+        let a = recipes::get(&conn, A).unwrap();
+        assert_eq!(a.rating, None, "ratings are personal");
+        assert_eq!(a.categories, vec!["Baking"]);
+        assert_eq!(
+            a.video_status,
+            VideoStatus::None,
+            "can be downloaded from the link"
+        );
+        assert_eq!(a.youtube_url.as_deref(), Some("https://youtu.be/abc"));
+        assert_eq!(a.bookmarks.len(), 1);
+        assert_eq!(a.bookmarks[0].time_text, "1:15");
+        assert!(
+            friend
+                .media
+                .resolve(&a.photo_path.clone().unwrap())
+                .is_some()
+        );
+        drop(conn);
+
+        // Adding it again makes a copy with a new id; the first stays as it was.
+        assert!(preview(&friend, &file).unwrap().recipes[0].in_library);
+        add_shared(&friend, &file, &ids, &|_| {}).unwrap();
+        let conn = friend.db();
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM recipes WHERE title = 'Apple pie'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 2);
+        let copy: String = conn
+            .query_row(
+                "SELECT id FROM recipes WHERE title = 'Apple pie' AND id != ?1",
+                [A],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let copy = recipes::get(&conn, &copy).unwrap();
+        assert!(copy.photo_path.unwrap().contains(&copy.id));
+        assert_eq!(copy.bookmarks.len(), 1);
+    }
+
+    #[test]
+    fn shares_videos_when_asked() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mine = state(&tmp.path().join("mine"));
+        add(&mine, A, "Apple pie", true);
+        let file = tmp.path().join("x.recipio");
+        export(
+            &mine,
+            &file,
+            Kind::Share,
+            Some(&[A.to_string()]),
+            true,
+            &|_| {},
+        )
+        .unwrap();
+        let friend = state(&tmp.path().join("friend"));
+        add_shared(&friend, &file, &[A.to_string()], &|_| {}).unwrap();
+        let a = recipes::get(&friend.db(), A).unwrap();
+        assert_eq!(a.video_status, VideoStatus::Ready);
+        assert_eq!(friend.media.size_of(&a.video_path.unwrap()), Some(11));
+    }
+
+    #[test]
+    fn restores_bookmarks_and_clears_them_for_a_new_video() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = state(&tmp.path().join("one"));
+        add(&source, A, "Apple pie", true);
+        bookmarks::add(&source.db(), A, 30, "Mix", None).unwrap();
+        let file = tmp.path().join("b.zip");
+        export(&source, &file, Kind::Backup, None, true, &|_| {}).unwrap();
+        let target = state(&tmp.path().join("two"));
+        restore(&target, &file, &|_| {}).unwrap();
+        assert_eq!(recipes::get(&target.db(), A).unwrap().bookmarks.len(), 1);
+
+        // Same video under another link form: kept. A different video: cleared.
+        let conn = target.db();
+        let now = "2026-02-02T00:00:00Z";
+        recipes::set_video(
+            &conn,
+            A,
+            None,
+            VideoStatus::None,
+            Some(("https://www.youtube.com/watch?v=abc", now)),
+        )
+        .unwrap();
+        assert_eq!(bookmarks::list(&conn, A).unwrap().len(), 1);
+        recipes::set_video(
+            &conn,
+            A,
+            None,
+            VideoStatus::None,
+            Some(("https://youtu.be/other", now)),
+        )
+        .unwrap();
+        assert!(bookmarks::list(&conn, A).unwrap().is_empty());
     }
 }

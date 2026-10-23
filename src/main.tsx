@@ -10,6 +10,8 @@ import RecipeEditor from "./pages/RecipeEditor";
 import Organize from "./pages/Organize";
 import Settings from "./pages/Settings";
 import CookingMode from "./pages/CookingMode";
+import ShareRecipes from "./pages/ShareRecipes";
+import ImportShared from "./pages/ImportShared";
 import "./styles.css";
 
 window.addEventListener("error", (e) => void logError(`ui: ${e.message}`));
@@ -34,6 +36,8 @@ const router = createHashRouter([
       { path: "recipes/:id/edit", element: <RecipeEditor /> },
       { path: "organize", element: <Organize /> },
       { path: "settings", element: <Settings /> },
+      { path: "share", element: <ShareRecipes /> },
+      { path: "share/import", element: <ImportShared /> },
     ],
   },
   // Full screen, without the app's top bar.

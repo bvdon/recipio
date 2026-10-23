@@ -124,6 +124,11 @@ pub fn run() {
             commands::cancel_backup,
             commands::inspect_backup,
             commands::restore_backup,
+            commands::share_recipes,
+            commands::preview_shared,
+            commands::add_shared_recipes,
+            commands::add_video_bookmark,
+            commands::delete_video_bookmark,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

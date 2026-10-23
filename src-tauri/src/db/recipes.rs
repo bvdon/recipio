@@ -1,7 +1,7 @@
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
 
-use super::labels;
+use super::{bookmarks, labels};
 use crate::error::{AppError, AppResult};
 use crate::models::{
     IngredientInput, IngredientLine, LabelKind, Nutrition, Recipe, RecipeInput, RecipeQuery,
@@ -99,6 +99,7 @@ pub fn get(conn: &Connection, id: &str) -> AppResult<Recipe> {
     recipe.steps = steps_of(conn, id)?;
     recipe.categories = categories_of(conn, id)?;
     recipe.tags = tags_of(conn, id)?;
+    recipe.bookmarks = bookmarks::list(conn, id)?;
     Ok(recipe)
 }
 
@@ -127,6 +128,9 @@ pub fn set_video(
     status: VideoStatus,
     source: Option<(&str, &str)>,
 ) -> AppResult<bool> {
+    if let Some((url, _)) = source {
+        clear_bookmarks_if_new_video(conn, id, Some(url))?;
+    }
     let n = match source {
         Some((url, now)) => conn.execute(
             "UPDATE recipes SET video_path = ?2, video_status = ?3, youtube_url = ?4,
@@ -235,6 +239,7 @@ pub fn write(
 ) -> AppResult<()> {
     let input = &recipe.input;
     let n = &input.nutrition;
+    clear_bookmarks_if_new_video(tx, &input.id, input.youtube_url.as_deref())?;
     tx.execute(
         "INSERT INTO recipes (id, title, description, servings, prep_minutes, cook_minutes,
                               photo_path, notes, rating, youtube_url, source_url,
@@ -302,6 +307,26 @@ pub fn write(
     labels::set_for_recipe(tx, LabelKind::Category, &input.id, &input.categories)?;
     labels::set_for_recipe(tx, LabelKind::Tag, &input.id, &input.tags)?;
     reindex(tx, recipe)
+}
+
+/// Bookmarks belong to a video: when the recipe's YouTube link changes to a different
+/// video (or is cleared), they no longer apply.
+fn clear_bookmarks_if_new_video(conn: &Connection, id: &str, url: Option<&str>) -> AppResult<()> {
+    let old: Option<String> = conn
+        .query_row(
+            "SELECT youtube_url FROM recipes WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    let video_id = |u: Option<&str>| u.and_then(crate::video::youtube_id);
+    if let Some(old) = old
+        && video_id(Some(&old)) != video_id(url)
+    {
+        bookmarks::clear(conn, id)?;
+    }
+    Ok(())
 }
 
 /// Deletes a recipe and returns the media paths it owned, or `None` if it didn't exist.
@@ -383,6 +408,7 @@ fn recipe_from_row(row: &Row) -> rusqlite::Result<Recipe> {
         steps: Vec::new(),
         categories: Vec::new(),
         tags: Vec::new(),
+        bookmarks: Vec::new(),
         created_at: row.get(17)?,
         updated_at: row.get(18)?,
     })

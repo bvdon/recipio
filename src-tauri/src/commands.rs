@@ -5,13 +5,13 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::AppState;
-use crate::backup::{self, BackupSummary, LibraryStats};
-use crate::db::{labels, recipes};
+use crate::backup::{self, BackupSummary, Kind, LibraryStats, SharePreview};
+use crate::db::{bookmarks, labels, recipes};
 use crate::error::{AppError, AppResult};
-use crate::models::VideoStatus;
 use crate::models::{
     Label, LabelKind, PhotoChange, Recipe, RecipeInput, RecipeQuery, RecipeSummary, WebImport,
 };
+use crate::models::{VideoBookmark, VideoStatus};
 use crate::quantity;
 use crate::tools::{Package, ToolInfo};
 use crate::video::{self, VideoJob};
@@ -245,9 +245,13 @@ pub fn set_keep_awake(state: State<'_, AppState>, on: bool) {
     }
 }
 
+/// Contents of the whole library, or of the recipes in `ids` (sharing).
 #[tauri::command]
-pub async fn library_stats(state: State<'_, AppState>) -> AppResult<LibraryStats> {
-    backup::stats(&state)
+pub async fn library_stats(
+    state: State<'_, AppState>,
+    ids: Option<Vec<String>>,
+) -> AppResult<LibraryStats> {
+    backup::stats(&state, ids.as_deref())
 }
 
 /// Writes the whole library to a zip at `path` (chosen in a save dialog). Progress
@@ -255,9 +259,16 @@ pub async fn library_stats(state: State<'_, AppState>) -> AppResult<LibraryStats
 #[tauri::command]
 pub async fn export_backup(app: AppHandle, path: String, include_videos: bool) -> AppResult<()> {
     blocking(app, move |app, state| {
-        backup::export(state, Path::new(&path), include_videos, &|p| {
-            let _ = app.emit(backup::EVENT, p);
-        })
+        backup::export(
+            state,
+            Path::new(&path),
+            Kind::Backup,
+            None,
+            include_videos,
+            &|p| {
+                let _ = app.emit(backup::EVENT, p);
+            },
+        )
     })
     .await
 }
@@ -286,6 +297,78 @@ pub async fn restore_backup(app: AppHandle, path: String) -> AppResult<u32> {
         })
     })
     .await
+}
+
+/// Saves the chosen recipes to a `.recipio` file for another Recipio user.
+#[tauri::command]
+pub async fn share_recipes(
+    app: AppHandle,
+    path: String,
+    ids: Vec<String>,
+    include_videos: bool,
+) -> AppResult<()> {
+    blocking(app, move |app, state| {
+        backup::export(
+            state,
+            Path::new(&path),
+            Kind::Share,
+            Some(&ids),
+            include_videos,
+            &|p| {
+                let _ = app.emit(backup::EVENT, p);
+            },
+        )
+    })
+    .await
+}
+
+/// Lists the recipes in a shared file so the user can pick which to add.
+#[tauri::command]
+pub async fn preview_shared(app: AppHandle, path: String) -> AppResult<SharePreview> {
+    blocking(app, move |_, state| {
+        backup::preview(state, Path::new(&path))
+    })
+    .await
+}
+
+/// Adds the chosen recipes from a shared file; never changes existing recipes.
+#[tauri::command]
+pub async fn add_shared_recipes(app: AppHandle, path: String, ids: Vec<String>) -> AppResult<u32> {
+    blocking(app, move |app, state| {
+        backup::add_shared(state, Path::new(&path), &ids, &|p| {
+            let _ = app.emit(backup::EVENT, p);
+        })
+    })
+    .await
+}
+
+/// Adds a bookmark at `time` as typed ("2:15", "90", "1m30s"). `duration` is the video's
+/// length from the player, to reject times past the end. Returns the updated list.
+#[tauri::command]
+pub async fn add_video_bookmark(
+    state: State<'_, AppState>,
+    recipe_id: String,
+    time: String,
+    label: String,
+    duration: Option<f64>,
+) -> AppResult<Vec<VideoBookmark>> {
+    let seconds = crate::duration::timestamp(&time).ok_or_else(|| {
+        AppError::Validation("Enter a time in the video, like 2:15 or 1:02:30.".into())
+    })?;
+    let conn = state.db();
+    bookmarks::add(&conn, &recipe_id, seconds, &label, duration)?;
+    bookmarks::list(&conn, &recipe_id)
+}
+
+#[tauri::command]
+pub async fn delete_video_bookmark(
+    state: State<'_, AppState>,
+    recipe_id: String,
+    id: i64,
+) -> AppResult<Vec<VideoBookmark>> {
+    let conn = state.db();
+    bookmarks::delete(&conn, &recipe_id, id)?;
+    bookmarks::list(&conn, &recipe_id)
 }
 
 /// Runs file-heavy work off the async runtime.

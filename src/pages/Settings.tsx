@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { Archive, ArchiveRestore, RefreshCw, X } from "lucide-react";
-import { api, errorMessage, events, queryKeys, type AppError } from "../api";
+import { api, errorMessage, events, queryKeys } from "../api";
 import type { BackupProgress } from "../bindings/BackupProgress";
 import type { ToolProgress } from "../bindings/ToolProgress";
-import { ErrorBanner } from "../components/common";
+import { ErrorBanner, fileName, formatBytes, isCancelled, plural } from "../components/common";
 
 export default function Settings() {
   return (
@@ -20,20 +20,9 @@ export default function Settings() {
   );
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-
-function formatBytes(n: number): string {
-  if (n === 0) return "0 KB";
-  if (n < 1e6) return `${Math.max(1, Math.round(n / 1e3))} KB`;
-  if (n < 1e9) return `${Math.round(n / 1e6)} MB`;
-  return `${(n / 1e9).toFixed(1)} GB`;
-}
-
-const isCancelled = (e: unknown) => (e as AppError | null)?.kind === "cancelled";
-
 function BackupSection() {
   const queryClient = useQueryClient();
-  const stats = useQuery({ queryKey: queryKeys.libraryStats, queryFn: api.libraryStats });
+  const stats = useQuery({ queryKey: queryKeys.libraryStats, queryFn: () => api.libraryStats() });
   const [includeVideos, setIncludeVideos] = useState(true);
   const [progress, setProgress] = useState<BackupProgress | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -54,7 +43,7 @@ function BackupSection() {
     mutationFn: ({ path, videos }: { path: string; videos: boolean }) =>
       api.exportBackup(path, videos),
     onMutate: reset,
-    onSuccess: (_, { path }) => setResult(`Backup saved as ${path.split(/[\\/]/).pop()}.`),
+    onSuccess: (_, { path }) => setResult(`Backup saved as ${fileName(path)}.`),
     onError: (e) => {
       if (isCancelled(e)) setResult("Backup cancelled.");
     },

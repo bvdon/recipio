@@ -7,7 +7,9 @@ import {
   LayoutGrid,
   List,
   Search,
+  FileDown,
   Settings2,
+  Share2,
   Video,
   X,
 } from "lucide-react";
@@ -194,6 +196,15 @@ export default function Library() {
         <Link to="/organize" className="button ghost small">
           <Settings2 size={14} aria-hidden /> Manage categories &amp; tags
         </Link>
+        <div className="filter-group share-links">
+          <h2>Share</h2>
+          <Link to="/share" className="button small">
+            <Share2 size={14} aria-hidden /> Share recipes…
+          </Link>
+          <Link to="/share/import" className="button small">
+            <FileDown size={14} aria-hidden /> Import shared recipes…
+          </Link>
+        </div>
       </aside>
 
       <section className="library-main">

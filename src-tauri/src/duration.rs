@@ -13,6 +13,43 @@ pub fn minutes(text: &str) -> Option<u32> {
     (mins >= 1.0 && mins <= f64::from(u32::MAX)).then_some(mins as u32)
 }
 
+/// A point in a video as typed: "2:15", "1:02:03", "90" (seconds), "1m30s".
+pub fn timestamp(text: &str) -> Option<u32> {
+    let text = text.trim();
+    let secs = if text.contains(':') {
+        let parts: Vec<&str> = text.split(':').collect();
+        if parts.len() > 3
+            || parts
+                .iter()
+                .any(|p| p.is_empty() || p.len() > 4 || !p.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return None;
+        }
+        let nums: Vec<u64> = parts
+            .iter()
+            .map(|p| p.parse().ok())
+            .collect::<Option<_>>()?;
+        // Everything after the first part is minutes/seconds, so below 60.
+        if nums[1..].iter().any(|&n| n >= 60) {
+            return None;
+        }
+        nums.iter().fold(0, |acc, n| acc * 60 + n)
+    } else if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
+        text.parse().ok()?
+    } else {
+        plain(text)? as u64
+    };
+    u32::try_from(secs).ok().filter(|&s| s < 100 * 3600)
+}
+
+/// Seconds as a clock time: "0:15", "5:00", "1:02:05".
+pub fn clock(secs: u64) -> String {
+    match (secs / 3600, secs / 60 % 60, secs % 60) {
+        (0, m, s) => format!("{m}:{s:02}"),
+        (h, m, s) => format!("{h}:{m:02}:{s:02}"),
+    }
+}
+
 /// `P[nD]T[nH][nM][nS]`, also weeks (`P1W`) and decimals (`PT1.5H`). Years and months
 /// make no sense for cooking and are rejected.
 fn iso8601(text: &str) -> Option<f64> {
@@ -121,6 +158,31 @@ mod tests {
         assert_eq!(minutes("PT30M1H"), None, "units out of order");
         assert_eq!(minutes("PT1H1H"), None);
         assert_eq!(minutes("PTxM"), None);
+    }
+
+    #[test]
+    fn parses_video_timestamps() {
+        use super::{clock, timestamp};
+        assert_eq!(timestamp("2:15"), Some(135));
+        assert_eq!(timestamp(" 0:05 "), Some(5));
+        assert_eq!(timestamp("1:02:03"), Some(3723));
+        assert_eq!(timestamp("90"), Some(90));
+        assert_eq!(
+            timestamp("75:00"),
+            Some(4500),
+            "minutes may exceed 59 when leading"
+        );
+        assert_eq!(timestamp("1m30s"), Some(90));
+        assert_eq!(timestamp("2 min"), Some(120));
+        assert_eq!(timestamp("0"), Some(0));
+        for bad in [
+            "", "1:60", "1:2:3:4", "1::2", ":30", "abc", "-5", "1.5:00", "2:15pm",
+        ] {
+            assert_eq!(timestamp(bad), None, "{bad:?}");
+        }
+        assert_eq!(clock(0), "0:00");
+        assert_eq!(clock(135), "2:15");
+        assert_eq!(clock(3723), "1:02:03");
     }
 
     #[test]

@@ -1308,3 +1308,155 @@ h1 .count {
   font-size: 0.95rem;
   font-weight: 400;
 }
+
+/* ---------- Video bookmarks ---------- */
+
+.bookmarks {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+.bookmark-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.bookmark {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.bookmark button {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.bookmark-jump {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.25rem 0.4rem 0.25rem 0.7rem;
+  font-size: 0.85rem;
+}
+.bookmark-jump:hover {
+  color: var(--accent);
+}
+.bookmark-time {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.bookmark-remove {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.55rem 0 0.3rem;
+  color: var(--muted) !important;
+}
+.bookmark-remove:hover {
+  color: var(--danger) !important;
+}
+.bookmark-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.75rem;
+}
+.bookmark-form .grow {
+  flex: 1;
+  min-width: 12rem;
+  max-width: 22rem;
+}
+
+/* ---------- Share / import shared ---------- */
+
+.share-page {
+  max-width: 820px;
+}
+.share-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.share-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0 0.5rem;
+}
+.pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.pick-list li + li {
+  border-top: 1px solid var(--border);
+}
+.pick-list li.on {
+  background: var(--accent-soft);
+}
+.pick-list li.empty {
+  padding: 1rem;
+}
+.pick-list label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+.pick-list input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: none;
+  accent-color: var(--accent);
+}
+.pick-list img,
+.pick-list .photo-placeholder {
+  width: 3rem;
+  height: 2.25rem;
+  flex: none;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.pick-title {
+  flex: 1;
+  min-width: 0;
+}
+.share-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin: 1rem 0;
+}
+.share-footer .check {
+  margin-top: 0.4rem;
+}
+.share-file {
+  margin: 1.25rem 0 0.6rem;
+  font-size: 1.05rem;
+}
+.import-done {
+  padding: 1rem 1.1rem;
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+}
+.import-done p {
+  margin: 0 0 0.75rem;
+}

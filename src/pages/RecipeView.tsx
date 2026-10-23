@@ -1,11 +1,23 @@
+import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowLeft, Clock, CookingPot, ExternalLink, Pencil, Trash2, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  BookmarkPlus,
+  Clock,
+  CookingPot,
+  ExternalLink,
+  Pencil,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
 import { api, errorMessage, mediaUrl, queryKeys } from "../api";
 import type { Label } from "../bindings/Label";
 import type { Recipe } from "../bindings/Recipe";
+import type { VideoBookmark } from "../bindings/VideoBookmark";
 import { ErrorBanner, formatMinutes, Stars } from "../components/common";
 import { isRunning, useVideoDownload, VideoStatusPanel } from "../components/VideoDownload";
 
@@ -174,18 +186,34 @@ export default function RecipeView() {
 /** The downloaded video with standard controls, or the download status and actions. */
 function RecipeVideo({ recipe: r, onChange }: { recipe: Recipe; onChange: () => void }) {
   const dl = useVideoDownload(r.id, onChange);
+  const video = useRef<HTMLVideoElement>(null);
+  const player: Player = {
+    seek: (seconds) => {
+      const v = video.current;
+      if (!v) return;
+      v.currentTime = seconds;
+      void v.play();
+    },
+    position: () => video.current?.currentTime ?? 0,
+    duration: () => {
+      const d = video.current?.duration;
+      return d && Number.isFinite(d) ? d : null;
+    },
+  };
   const playable = r.video_status === "ready" && r.video_path !== null && !dl.removed;
   if (!playable && !r.youtube_url && !isRunning(dl.job)) return null;
   return (
     <section className="recipe-video">
       {playable && (
         <video
+          ref={video}
           controls
           preload="metadata"
           src={mediaUrl(r.video_path!, r.updated_at)}
           poster={r.photo_path ? mediaUrl(r.photo_path, r.updated_at) : undefined}
         />
       )}
+      {playable && <VideoBookmarks recipeId={r.id} bookmarks={r.bookmarks} player={player} />}
       {(!playable || isRunning(dl.job) || dl.job?.stage === "failed") && (
         <VideoStatusPanel
           dl={dl}
@@ -194,6 +222,157 @@ function RecipeVideo({ recipe: r, onChange }: { recipe: Recipe; onChange: () => 
         />
       )}
     </section>
+  );
+}
+
+const MAX_BOOKMARKS = 12;
+
+/** What bookmarks need from the video element. */
+type Player = {
+  seek: (seconds: number) => void;
+  position: () => number;
+  /** Length in seconds, once known. */
+  duration: () => number | null;
+};
+
+/** "m:ss" / "h:mm:ss", to pre-fill the time box with the player's position. */
+function clock(secs: number): string {
+  const s = Math.max(0, Math.floor(secs));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const m = Math.floor(s / 60) % 60;
+  return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
+}
+
+/**
+ * Bookmarks under the video, in time order (Rust sorts them): click one to jump there.
+ * "Add bookmark" starts at the player's current position.
+ */
+function VideoBookmarks({
+  recipeId,
+  bookmarks,
+  player,
+}: {
+  recipeId: string;
+  bookmarks: VideoBookmark[];
+  player: Player;
+}) {
+  const queryClient = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [time, setTime] = useState("");
+  const [label, setLabel] = useState("");
+
+  const store = (list: VideoBookmark[]) =>
+    queryClient.setQueryData<Recipe>(queryKeys.recipe(recipeId), (r) =>
+      r ? { ...r, bookmarks: list } : r,
+    );
+
+  const add = useMutation({
+    mutationFn: () => api.addVideoBookmark(recipeId, time, label, player.duration()),
+    onSuccess: (list) => {
+      store(list);
+      setAdding(false);
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.deleteVideoBookmark(recipeId, id),
+    onSuccess: store,
+  });
+
+  const startAdding = () => {
+    setTime(clock(player.position()));
+    setLabel("");
+    add.reset();
+    setAdding(true);
+  };
+
+  const full = bookmarks.length >= MAX_BOOKMARKS;
+  return (
+    <div className="bookmarks">
+      <div className="bookmark-list">
+        {bookmarks.map((b) => (
+          <span key={b.id} className="bookmark">
+            <button
+              type="button"
+              className="bookmark-jump"
+              onClick={() => player.seek(b.seconds)}
+              title={`Jump to ${b.time_text}`}
+            >
+              <span className="bookmark-time">{b.time_text}</span>
+              {b.label && <span className="bookmark-label">{b.label}</span>}
+            </button>
+            <button
+              type="button"
+              className="bookmark-remove"
+              aria-label={`Remove bookmark at ${b.time_text}`}
+              title="Remove bookmark"
+              onClick={() => remove.mutate(b.id)}
+            >
+              <X size={12} aria-hidden />
+            </button>
+          </span>
+        ))}
+        {!adding && (
+          <button
+            type="button"
+            className="button small"
+            disabled={full}
+            onClick={startAdding}
+            title={
+              full ? `${MAX_BOOKMARKS} bookmarks is the limit` : "Bookmark a point in the video"
+            }
+          >
+            <BookmarkPlus size={14} aria-hidden /> Add bookmark
+          </button>
+        )}
+      </div>
+      {adding && (
+        <form
+          className="bookmark-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            add.mutate();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setAdding(false);
+          }}
+        >
+          <label>
+            Time
+            <input
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              placeholder="2:15"
+              size={8}
+              autoFocus
+              onFocus={(e) => e.target.select()}
+            />
+          </label>
+          <label className="grow">
+            Name (optional)
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Making the sauce"
+              maxLength={40}
+            />
+          </label>
+          <button type="submit" className="button primary small" disabled={add.isPending}>
+            Save bookmark
+          </button>
+          <button type="button" className="button ghost small" onClick={() => setAdding(false)}>
+            Cancel
+          </button>
+        </form>
+      )}
+      {full && !adding && (
+        <p className="hint">
+          That’s the limit of {MAX_BOOKMARKS} bookmarks; remove one to add another.
+        </p>
+      )}
+      {add.isError && <ErrorBanner message={errorMessage(add.error)} />}
+      {remove.isError && <ErrorBanner message={errorMessage(remove.error)} />}
+    </div>
   );
 }
 

@@ -86,6 +86,19 @@ pub struct Nutrition {
     pub fat_g: Option<f64>,
 }
 
+/// A named point in a recipe's video, for jumping straight to a section.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct VideoBookmark {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub seconds: u32,
+    /// Optional short name, e.g. "Sauce".
+    pub label: String,
+    /// `seconds` as a clock time, e.g. "2:15" or "1:02:03".
+    pub time_text: String,
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]
 pub struct Recipe {
@@ -108,6 +121,8 @@ pub struct Recipe {
     pub steps: Vec<String>,
     pub categories: Vec<String>,
     pub tags: Vec<String>,
+    /// Ordered by time.
+    pub bookmarks: Vec<VideoBookmark>,
     pub created_at: String,
     pub updated_at: String,
 }

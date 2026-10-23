@@ -270,6 +270,39 @@ structured data, say so and keep just the URL.
   missing (Re-download offered); failed stays failed.
 - Newer backup versions are refused with "update the app first".
 
+### Video bookmarks (owner request after Phase 6)
+
+- Table `video_bookmarks` (migration 0002): recipe_id (cascade), whole `seconds`, optional
+  `label` (≤ 40 chars). At most 12 per recipe, no two at the same second, not past the
+  video's end (the player's duration is passed in). `Recipe.bookmarks` is sorted by time
+  with Rust-formatted `time_text`.
+- Recipe page, under the player: bookmarks as chips left to right in time order (click =
+  seek and play, × = remove at once), then **Add bookmark** → inline form pre-filled with
+  the player's position. Times accepted: `2:15`, `1:02:03`, `90`, `1m30s`
+  (`duration::timestamp`).
+- Bookmarks belong to the video: kept when the file is removed/re-downloaded, cleared when
+  the recipe's YouTube link changes to a different video id (`save_recipe` and a finished
+  download both check, via `video::youtube_id`). Saving the editor doesn't touch them;
+  they don't change `updated_at`. Included in backups and share files.
+
+### Sharing recipes (owner request after Phase 6)
+
+- Library sidebar → **Share recipes…** (`/share`): find/tick recipes (Select all /
+  Select these), see the photo/video size, optionally include downloaded videos (off by
+  default — the friend can download from the YouTube link), **Save share file…** →
+  `<title or "N recipes">.recipio`.
+- File = the backup zip layout with `format: "recipio-share"`: chosen recipes only, no
+  star ratings (personal), labels travel on each recipe, bookmarks included.
+- Library sidebar → **Import shared recipes…** (`/share/import`): choose a `.recipio`
+  (a backup `.zip` also works) → list with checkboxes; recipes whose id is already in the
+  library are unticked and marked "Already in your library" (ticking adds a copy with a
+  new id). **Add N recipes to my library** never changes or removes anything: files are
+  unpacked to `tmp/`, moved under the final ids, then one DB transaction adds the recipes
+  (created/updated = now, missing labels created). A failure removes the moved files.
+  Video status: file included → ready; otherwise none (Download video is offered).
+- A share file can't be used with Restore (that needs a full backup), so a friend's file
+  can never replace a library.
+
 ### Other
 
 - Screen wake in cooking mode: `keepawake` crate (IOKit / SetThreadExecutionState /
@@ -357,3 +390,6 @@ test instructions for the owner, and a stop for approval.
 | Q18 | Video named by an imported page                                                     | Fills the editor's Video field; nothing downloads until the user clicks Download                                                        |
 | Q19 | Videos in backups                                                                   | Optional ("Include downloaded videos", on by default); left-out videos restore as "missing" with Re-download                            |
 | Q20 | Restore during a video download                                                     | Refused with a message (the download would write into the replaced library)                                                             |
+| Q21 | Video bookmarks                                                                     | Optional label; max 12; cleared when the YouTube link changes to another video; managed on the recipe page                              |
+| Q22 | Share file format                                                                   | `.recipio` = backup zip layout, format `recipio-share`, chosen recipes, no ratings; videos optional (off by default)                    |
+| Q23 | Importing a recipe that already exists                                              | Never overwrite: unticked by default; if ticked, added as a copy with a new id                                                          |

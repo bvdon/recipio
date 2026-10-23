@@ -1,3 +1,4 @@
+pub mod bookmarks;
 pub mod labels;
 pub mod recipes;
 
@@ -9,7 +10,10 @@ use rusqlite_migration::{M, Migrations};
 use crate::error::AppResult;
 
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(include_str!("../../migrations/0001_init.sql"))])
+    Migrations::new(vec![
+        M::up(include_str!("../../migrations/0001_init.sql")),
+        M::up(include_str!("../../migrations/0002_video_bookmarks.sql")),
+    ])
 }
 
 /// Opens (creating if needed) the database file and applies pending migrations.

@@ -13,6 +13,8 @@ import type { VideoJob } from "./bindings/VideoJob";
 import type { WebImport } from "./bindings/WebImport";
 import type { BackupSummary } from "./bindings/BackupSummary";
 import type { LibraryStats } from "./bindings/LibraryStats";
+import type { SharePreview } from "./bindings/SharePreview";
+import type { VideoBookmark } from "./bindings/VideoBookmark";
 
 export type AppError = { kind: string; message: string };
 
@@ -50,12 +52,21 @@ export const api = {
   installTools: (update: boolean) => invoke<Package[]>("install_tools", { update }),
   importRecipe: (url: string) => invoke<WebImport>("import_recipe", { url }),
   setKeepAwake: (on: boolean) => invoke<void>("set_keep_awake", { on }),
-  libraryStats: () => invoke<LibraryStats>("library_stats"),
+  libraryStats: (ids?: string[]) => invoke<LibraryStats>("library_stats", { ids: ids ?? null }),
   exportBackup: (path: string, includeVideos: boolean) =>
     invoke<void>("export_backup", { path, includeVideos }),
   cancelBackup: () => invoke<void>("cancel_backup"),
   inspectBackup: (path: string) => invoke<BackupSummary>("inspect_backup", { path }),
   restoreBackup: (path: string) => invoke<number>("restore_backup", { path }),
+  shareRecipes: (path: string, ids: string[], includeVideos: boolean) =>
+    invoke<void>("share_recipes", { path, ids, includeVideos }),
+  previewShared: (path: string) => invoke<SharePreview>("preview_shared", { path }),
+  addSharedRecipes: (path: string, ids: string[]) =>
+    invoke<number>("add_shared_recipes", { path, ids }),
+  addVideoBookmark: (recipeId: string, time: string, label: string, duration: number | null) =>
+    invoke<VideoBookmark[]>("add_video_bookmark", { recipeId, time, label, duration }),
+  deleteVideoBookmark: (recipeId: string, id: number) =>
+    invoke<VideoBookmark[]>("delete_video_bookmark", { recipeId, id }),
 };
 
 /** Tauri event names (see `video.rs` and `commands::install_tools`). */

@@ -15,6 +15,7 @@ use ts_rs::TS;
 
 use crate::AppState;
 use crate::db::recipes;
+use crate::duration;
 use crate::error::{AppError, AppResult};
 use crate::models::VideoStatus;
 use crate::process;
@@ -520,6 +521,21 @@ pub fn youtube_url(text: &str) -> Option<String> {
         .then(|| url.to_string())
 }
 
+/// The video id of a YouTube link (`v=`, youtu.be path, `/shorts/…` etc.), to tell
+/// whether two links show the same video.
+pub fn youtube_id(url: &str) -> Option<String> {
+    let url = reqwest::Url::parse(&youtube_url(url)?).ok()?;
+    let id = if url.host_str()? == "youtu.be" {
+        url.path().trim_start_matches('/').to_string()
+    } else if let Some((_, v)) = url.query_pairs().find(|(k, _)| k == "v") {
+        v.into_owned()
+    } else {
+        url.path_segments()?.nth(1)?.to_string()
+    };
+    let id = id.split('/').next().unwrap_or_default().to_string();
+    (!id.is_empty()).then_some(id)
+}
+
 fn is_youtube_image(url: &str) -> bool {
     reqwest::Url::parse(url).is_ok_and(|u| {
         u.scheme() == "https"
@@ -679,7 +695,7 @@ impl PartTracker {
             detail.push_str(&format!(" · {}/s", bytes(s as u64)));
         }
         if let Some(eta) = p.eta.filter(|_| !p.finished) {
-            detail.push_str(&format!(" · {} left", clock(eta)));
+            detail.push_str(&format!(" · {} left", duration::clock(eta)));
         }
         if parts > 1 {
             let what = if index == 0 { "video" } else { "audio" };
@@ -776,13 +792,6 @@ fn bytes(n: u64) -> String {
     }
 }
 
-fn clock(secs: u64) -> String {
-    match (secs / 3600, secs / 60 % 60, secs % 60) {
-        (0, m, s) => format!("{m}:{s:02}"),
-        (h, m, s) => format!("{h}:{m:02}:{s:02}"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -814,6 +823,20 @@ mod tests {
         ] {
             assert_eq!(youtube_url(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn extracts_video_ids() {
+        for url in [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30",
+            "https://youtu.be/dQw4w9WgXcQ?si=abc",
+            "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+            "https://www.youtube.com/embed/dQw4w9WgXcQ?feature=oembed",
+            "https://m.youtube.com/watch?feature=share&v=dQw4w9WgXcQ",
+        ] {
+            assert_eq!(youtube_id(url).as_deref(), Some("dQw4w9WgXcQ"), "{url}");
+        }
+        assert_eq!(youtube_id("https://example.com/watch?v=x"), None);
     }
 
     #[test]
@@ -946,7 +969,7 @@ mod tests {
         assert_eq!(bytes(512 * 1024), "512 KB");
         assert_eq!(bytes(12_900_000), "12.3 MB");
         assert_eq!(bytes(3 * 1024 * 1024 * 1024), "3.0 GB");
-        assert_eq!(clock(75), "1:15");
-        assert_eq!(clock(3725), "1:02:05");
+        assert_eq!(duration::clock(75), "1:15");
+        assert_eq!(duration::clock(3725), "1:02:05");
     }
 }
