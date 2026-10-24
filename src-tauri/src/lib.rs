@@ -10,6 +10,7 @@ mod models;
 mod pdf;
 mod process;
 mod quantity;
+mod scaling;
 mod sharing;
 mod tools;
 mod video;
@@ -154,6 +155,7 @@ pub fn run() {
             commands::new_recipe_id,
             commands::list_recipes,
             commands::get_recipe,
+            commands::scale_recipe,
             commands::save_recipe,
             commands::delete_recipe,
             commands::stage_photo,

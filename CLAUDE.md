@@ -51,7 +51,8 @@ recipe page that open the filtered library.
 
 Phase 3 delivered: quantities are typed as text and parsed in Rust (`quantity.rs`:
 fractions, mixed numbers, unicode ½, decimals, ranges), displayed as friendly fractions.
-**Scaling was dropped by the owner** (PLAN.md Q10) — don't build it. Nutrition (also in
+Scaling was first dropped (Q10), then built on the owner's request after release (see
+"Servings scaling" below). Nutrition (also in
 the brief's Phase 3) already shipped in Phase 1. Paste-to-parse: `ingredient_parser.rs`
 (heuristics in PLAN.md §3) + `PasteIngredientsDialog` (preview, then add to the editor).
 App icon = the logo's chef hat; regenerate with `npx tauri icon <1024px png>` from
@@ -97,6 +98,11 @@ elsewhere; share files carry `from`/`note` and smaller photos; `.recipio` file a
 - single-instance plugin open attachments on the import screen. Design: PLAN.md §3
   "Phase 8 (as built)".
 
+Servings scaling (owner request, 2026-10-24, after v0.1.0-beta.2): `scaling.rs` scales a copy
+of the recipe (servings, or ×½…×10 when it has none) with kitchen-friendly rounding; the
+recipe page has a − n + control by the Ingredients heading (not saved, resets on leaving);
+the PDF uses the scaled amounts; cooking mode does not (owner choice). PLAN.md §3.
+
 All phases are done and approved. Releases: **v0.1.0-beta.2** is the published "Latest"
 release (not marked pre-release, so it shows in the repo sidebar); beta.1 stays as a
 pre-release. Tags carry the beta suffix; app version stays 0.1.0 because the Windows MSI
@@ -135,6 +141,7 @@ tried by hand; installers unsigned (Q6); Windows share panel deferred (Q26). AI-
 - `src-tauri/src/db/` — `open` + migrations; `recipes.rs` (validate, upsert, delete, list/search/sort, FTS reindex); `labels.rs` (categories + tags via `LabelKind`: list, create, rename, delete, merge, link).
 - `src-tauri/src/media.rs` — media folder, photo staging, orphan sweep, `recipio-media://` handler + range parsing.
 - `src-tauri/src/quantity.rs` — quantity parse (`"1 1/2"`, `"¾"`, `"2-3"`) and fraction formatting.
+- `src-tauri/src/scaling.rs` — servings/factor scaling of a recipe copy (recipe page, PDF).
 - `src-tauri/src/ingredient_parser.rs` — pasted ingredient text → editor-shaped lines (also for Phase 5 web import).
 - `src-tauri/src/tools.rs` — downloader binaries: platform sources, latest-release lookup, verified install, `tools.json`.
 - `src-tauri/src/video.rs` — download jobs (`video://job` events), format plan, progress, error classification, URL checks.

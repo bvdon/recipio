@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ask, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -9,7 +9,9 @@ import {
   Clock,
   CookingPot,
   ExternalLink,
+  Minus,
   Pencil,
+  Plus,
   Printer,
   Send,
   Trash2,
@@ -19,6 +21,7 @@ import {
 import { api, errorMessage, mediaUrl, queryKeys } from "../api";
 import type { Label } from "../bindings/Label";
 import type { Recipe } from "../bindings/Recipe";
+import type { Scale } from "../bindings/Scale";
 import type { VideoBookmark } from "../bindings/VideoBookmark";
 import { ErrorBanner, formatMinutes, Stars } from "../components/common";
 import { isRunning, useVideoDownload, VideoStatusPanel } from "../components/VideoDownload";
@@ -51,9 +54,24 @@ export default function RecipeView() {
 
   const [sharing, setSharing] = useState(false);
 
-  // Saves a PDF (text and photo, never the video) and opens it.
+  // Servings chosen on this page (null = as written). Never saved; a setting that no longer
+  // fits the recipe (servings added or removed in the editor) is ignored.
+  const [chosen, setChosen] = useState<{ id: string; scale: Scale } | null>(null);
+  const servings = recipe.data?.servings ?? null;
+  const scale =
+    chosen?.id === id && (chosen.scale.by === "servings") === (servings !== null)
+      ? chosen.scale
+      : null;
+  const scaled = useQuery({
+    queryKey: queryKeys.scaledIngredients(id, scale),
+    queryFn: () => api.scaleRecipe(id, scale!),
+    enabled: scale !== null,
+    placeholderData: keepPreviousData,
+  });
+
+  // Saves a PDF (text and photo, never the video, amounts as scaled here) and opens it.
   const pdf = useMutation({
-    mutationFn: (path: string) => api.exportPdf(id, path, navigator.language),
+    mutationFn: (path: string) => api.exportPdf(id, path, navigator.language, scale),
   });
 
   const savePdf = async (r: Recipe) => {
@@ -79,6 +97,8 @@ export default function RecipeView() {
   const r = recipe.data;
   const n = r.nutrition;
   const hasNutrition = [n.calories, n.protein_g, n.carbs_g, n.fat_g].some((v) => v !== null);
+  const ingredients = scale && scaled.data ? scaled.data : r.ingredients;
+  const shownServings = scale?.by === "servings" ? scale.servings : r.servings;
 
   return (
     <article className="recipe-view">
@@ -135,7 +155,7 @@ export default function RecipeView() {
           <ul className="meta">
             {r.servings !== null && (
               <li>
-                <Users size={16} aria-hidden /> {r.servings} servings
+                <Users size={16} aria-hidden /> {shownServings} servings
               </li>
             )}
             {r.prep_minutes !== null && (
@@ -166,10 +186,20 @@ export default function RecipeView() {
 
       <div className="recipe-body">
         <section className="ingredients">
-          <h2>Ingredients</h2>
+          <div className="ingredients-head">
+            <h2>Ingredients</h2>
+            {r.ingredients.some((l) => l.quantity !== null) && (
+              <ScaleControl
+                servings={r.servings}
+                scale={scale}
+                onChange={(next) => setChosen(next && { id, scale: next })}
+              />
+            )}
+          </div>
+          {scaled.isError && <ErrorBanner message={errorMessage(scaled.error)} />}
           {r.ingredients.length === 0 && <p className="muted">No ingredients.</p>}
           <ul>
-            {r.ingredients.map((l, i) =>
+            {ingredients.map((l, i) =>
               l.is_heading ? (
                 <li key={i} className="ingredient-heading">
                   {l.item}
@@ -183,6 +213,7 @@ export default function RecipeView() {
               ),
             )}
           </ul>
+          {scale && <p className="muted small">Amounts in the steps aren’t changed.</p>}
         </section>
 
         <section className="steps">
@@ -462,5 +493,73 @@ function SourceLink({ url, label }: { url: string; label: string }) {
         {label} <ExternalLink size={14} aria-hidden />
       </button>
     </li>
+  );
+}
+
+/** Factors offered for recipes without servings. */
+const FACTORS = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const MAX_SERVINGS = 99;
+
+/**
+ * − n + control for the ingredients: servings when the recipe has them, otherwise a factor
+ * (×½, ×1, ×2 …). `null` means as written.
+ */
+function ScaleControl({
+  servings,
+  scale,
+  onChange,
+}: {
+  servings: number | null;
+  scale: Scale | null;
+  onChange: (scale: Scale | null) => void;
+}) {
+  let label: string, value: string, down: Scale | null | undefined, up: Scale | null | undefined;
+  if (servings !== null) {
+    const n = scale?.by === "servings" ? scale.servings : servings;
+    const to = (m: number): Scale | null =>
+      m === servings ? null : { by: "servings", servings: m };
+    label = "Servings";
+    value = String(n);
+    down = n > 1 ? to(n - 1) : undefined;
+    up = n < MAX_SERVINGS ? to(n + 1) : undefined;
+  } else {
+    const i = FACTORS.indexOf(scale?.by === "factor" ? scale.factor : 1);
+    const to = (f: number | undefined): Scale | null | undefined =>
+      f === undefined ? undefined : f === 1 ? null : { by: "factor", factor: f };
+    label = "Scale";
+    value = `×${FACTORS[i] === 0.5 ? "½" : FACTORS[i]}`;
+    down = to(FACTORS[i - 1]);
+    up = to(FACTORS[i + 1]);
+  }
+  return (
+    <div className="scale-control" role="group" aria-label={label}>
+      <span className="muted">{label}</span>
+      <button
+        type="button"
+        className="button icon"
+        disabled={down === undefined}
+        onClick={() => down !== undefined && onChange(down)}
+        aria-label={servings !== null ? "Fewer servings" : "Scale down"}
+      >
+        <Minus size={14} aria-hidden />
+      </button>
+      <span className="scale-value" aria-live="polite">
+        {value}
+      </span>
+      <button
+        type="button"
+        className="button icon"
+        disabled={up === undefined}
+        onClick={() => up !== undefined && onChange(up)}
+        aria-label={servings !== null ? "More servings" : "Scale up"}
+      >
+        <Plus size={14} aria-hidden />
+      </button>
+      {scale && (
+        <button type="button" className="link small" onClick={() => onChange(null)}>
+          Reset
+        </button>
+      )}
+    </div>
   );
 }

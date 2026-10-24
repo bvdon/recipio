@@ -12,9 +12,11 @@ use crate::models::{
     Friend, FriendInput, ShareDirection, ShareLogEntry, VideoBookmark, VideoStatus,
 };
 use crate::models::{
-    Label, LabelKind, PhotoChange, Recipe, RecipeInput, RecipeQuery, RecipeSummary, WebImport,
+    IngredientLine, Label, LabelKind, PhotoChange, Recipe, RecipeInput, RecipeQuery, RecipeSummary,
+    WebImport,
 };
 use crate::quantity;
+use crate::scaling::{self, Scale};
 use crate::sharing::{self, ShareFormat, ShareOutcome, ShareTarget};
 use crate::tools::{Package, ToolInfo};
 use crate::video::{self, VideoJob};
@@ -50,6 +52,18 @@ pub async fn get_recipe(state: State<'_, AppState>, id: String) -> AppResult<Rec
         recipe.video_status = VideoStatus::Missing;
     }
     Ok(recipe)
+}
+
+/// The recipe's ingredient lines with amounts scaled for the recipe page (nothing is saved).
+#[tauri::command]
+pub async fn scale_recipe(
+    state: State<'_, AppState>,
+    id: String,
+    scale: Scale,
+) -> AppResult<Vec<IngredientLine>> {
+    let mut recipe = recipes::get(&state.db(), &id)?;
+    scaling::apply(&mut recipe, scale)?;
+    Ok(recipe.ingredients)
 }
 
 #[tauri::command]
@@ -351,10 +365,20 @@ pub async fn delete_video_bookmark(
 
 /// Saves the recipe as a PDF at `path` (chosen in a save dialog) and opens it. Text and
 /// photo only, never the video. `locale` (the UI language, e.g. "en-US") picks Letter or A4.
+/// `scale` is the recipe page's servings setting, when changed.
 #[tauri::command]
-pub async fn export_pdf(app: AppHandle, id: String, path: String, locale: String) -> AppResult<()> {
+pub async fn export_pdf(
+    app: AppHandle,
+    id: String,
+    path: String,
+    locale: String,
+    scale: Option<Scale>,
+) -> AppResult<()> {
     blocking(app, move |app, state| {
-        let recipe = recipes::get(&state.db(), &id)?;
+        let mut recipe = recipes::get(&state.db(), &id)?;
+        if let Some(scale) = scale {
+            scaling::apply(&mut recipe, scale)?;
+        }
         let photo = pdf_photo(state, &recipe);
         let bytes = crate::pdf::render(&recipe, photo, &locale)?;
         std::fs::write(&path, bytes)?;

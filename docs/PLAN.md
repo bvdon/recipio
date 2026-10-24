@@ -321,6 +321,19 @@ structured data, say so and keep just the URL.
 - Live check: `RECIPIO_PDF_DB=<db copy> RECIPIO_PDF_MEDIA=<media dir> RECIPIO_PDF_ID=<id>
 RECIPIO_PDF_OUT=<file.pdf> cargo test -- --ignored live_pdf`.
 
+### Servings scaling (owner request, 2026-10-24)
+
+- Recipe page: `Servings [−] 4 [+]  Reset` beside the Ingredients heading (1–99). Recipes
+  without servings get `Scale [−] ×1 [+]` stepping ×½, ×1, ×2 … ×10. Shown only when some line
+  has an amount. Not saved; resets when leaving the recipe. The header's "n servings" follows.
+- Rust (`scaling.rs`, command `scale_recipe(id, scale)` → ingredient lines): factor =
+  new / original servings; both ends of a range scale; lines without an amount and units are
+  unchanged (no unit conversion); headings untouched. Rounding: eighths/thirds below 1,
+  quarters/thirds below 10, whole numbers from 10; never below 1/16. Factor 1 returns the
+  stored text unchanged.
+- PDF: `export_pdf` takes the same optional `scale`. Cooking mode shows amounts as written
+  (owner choice). Amounts written inside step text are not changed (the page says so).
+
 ### Other
 
 - Screen wake in cooking mode: `keepawake` crate (IOKit / SetThreadExecutionState /
@@ -471,7 +484,7 @@ is available.
 | Q7  | Bundle identifier (determines app data path), e.g. `io.github.<user>.recipio`?      | **`io.github.bvdon.recipio`** (owner deferred to Claude)                                                                                                       |
 | Q8  | GitHub repo: create/push at Phase 1 or Phase 7? Repo name/owner?                    | Public repo `bvdon/recipio` (timing: see CLAUDE.md status)                                                                                                     |
 | Q9  | Testing scope                                                                       | macOS-only testing is fine for now; Windows/Linux via CI later                                                                                                 |
-| Q10 | Servings scaling (brief, Phase 3)                                                   | **Dropped** by the owner (2026-10-22) — no servings control, no `scaling.rs`                                                                                   |
+| Q10 | Servings scaling (brief, Phase 3)                                                   | Dropped (2026-10-22), then **built** on the owner's request (2026-10-24): − n + control on the recipe page, PDF follows, cooking mode doesn't                  |
 | Q11 | Quantity entry                                                                      | Typed as text (`3/4`, `1 1/2`, `½`, `2-3`), parsed in Rust (`quantity.rs`), shown as fractions (`¾`, `1½`)                                                     |
 | Q12 | Paste-to-parse review                                                               | Read-only preview in a dialog, then lines are added to the editor for any fixes (no editing inside the dialog)                                                 |
 | Q13 | App icon                                                                            | The logo's chef hat (lucide `ChefHat`), white on the accent terracotta; source `src-tauri/icons/icon.svg`                                                      |

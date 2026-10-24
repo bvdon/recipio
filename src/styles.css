@@ -735,6 +735,32 @@ h1 .count {
   grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr);
   gap: 2rem;
 }
+.ingredients-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.5rem;
+}
+.ingredients-head h2 {
+  margin: 0;
+}
+.scale-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+.scale-control .button.icon {
+  padding: 0.3rem;
+}
+.scale-value {
+  min-width: 2.2rem;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 .ingredients ul {
   list-style: none;
   padding: 0;

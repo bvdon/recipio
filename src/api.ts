@@ -7,6 +7,8 @@ import type { Recipe } from "./bindings/Recipe";
 import type { RecipeInput } from "./bindings/RecipeInput";
 import type { RecipeQuery } from "./bindings/RecipeQuery";
 import type { RecipeSummary } from "./bindings/RecipeSummary";
+import type { Scale } from "./bindings/Scale";
+import type { IngredientLine } from "./bindings/IngredientLine";
 import type { Package } from "./bindings/Package";
 import type { ToolInfo } from "./bindings/ToolInfo";
 import type { VideoJob } from "./bindings/VideoJob";
@@ -78,8 +80,10 @@ export const api = {
   share: (request: ShareRequest) => invoke<ShareOutcome>("share", { request }),
   revealFile: (path: string) => invoke<void>("reveal_file", { path }),
   takeOpenedFiles: () => invoke<string[]>("take_opened_files"),
-  exportPdf: (id: string, path: string, locale: string) =>
-    invoke<void>("export_pdf", { id, path, locale }),
+  scaleRecipe: (id: string, scale: Scale) =>
+    invoke<IngredientLine[]>("scale_recipe", { id, scale }),
+  exportPdf: (id: string, path: string, locale: string, scale: Scale | null) =>
+    invoke<void>("export_pdf", { id, path, locale, scale }),
   deleteVideoBookmark: (recipeId: string, id: number) =>
     invoke<VideoBookmark[]>("delete_video_bookmark", { recipeId, id }),
 };
@@ -102,6 +106,8 @@ export const queryKeys = {
   recipes: ["recipes"] as const,
   recipeList: (query: RecipeQuery) => ["recipes", query] as const,
   recipe: (id: string) => ["recipe", id] as const,
+  /** Under `recipe(id)`, so refreshing the recipe refreshes these too. */
+  scaledIngredients: (id: string, scale: Scale | null) => ["recipe", id, "scaled", scale] as const,
   /** Prefix of every `recipe(id)` key. */
   allRecipes: ["recipe"] as const,
   labels: (kind: LabelKind) => ["labels", kind] as const,
