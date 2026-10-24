@@ -97,9 +97,11 @@ elsewhere; share files carry `from`/`note` and smaller photos; `.recipio` file a
 - single-instance plugin open attachments on the import screen. Design: PLAN.md §3
   "Phase 8 (as built)".
 
-All phases are done and approved; public pre-release **v0.1.0-beta.1** is out (tag carries
-the beta suffix; app version stays 0.1.0 because the Windows MSI rejects pre-release
-versions). The owner is using the app and will report findings. Open: Windows/Linux not
+All phases are done and approved. Releases: **v0.1.0-beta.2** is the published "Latest"
+release (not marked pre-release, so it shows in the repo sidebar); beta.1 stays as a
+pre-release. Tags carry the beta suffix; app version stays 0.1.0 because the Windows MSI
+rejects pre-release versions. To release: push a `v*` tag → CI makes a draft → `gh release
+edit <tag> --title … --notes-file … --draft=false --prerelease=false --latest`. The owner is using the app and will report findings. Open: Windows/Linux not
 tried by hand; installers unsigned (Q6); Windows share panel deferred (Q26).
 
 ## Environment / gotchas
