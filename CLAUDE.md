@@ -102,7 +102,8 @@ release (not marked pre-release, so it shows in the repo sidebar); beta.1 stays 
 pre-release. Tags carry the beta suffix; app version stays 0.1.0 because the Windows MSI
 rejects pre-release versions. To release: push a `v*` tag → CI makes a draft → `gh release
 edit <tag> --title … --notes-file … --draft=false --prerelease=false --latest`. The owner is using the app and will report findings. Open: Windows/Linux not
-tried by hand; installers unsigned (Q6); Windows share panel deferred (Q26).
+tried by hand; installers unsigned (Q6); Windows share panel deferred (Q26). AI-generated recipes are on permanent hold
+(PLAN.md §7, Q27) — don't build.
 
 ## Environment / gotchas
 

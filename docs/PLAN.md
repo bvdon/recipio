@@ -488,3 +488,59 @@ is available.
 | Q24 | Recipe PDF                                                                          | Generated in Rust (krilla + Noto Sans), opened after saving; never includes the video, its link or bookmarks; Letter/A4 by locale                              |
 | Q25 | Friends / sharing with friends                                                      | Option 3 (2026-10-23): native sharing (Messages/Mail/AirDrop, Windows share) + `.recipio` file association; no servers, no in-app chat. Phase 8, after Phase 7 |
 | Q26 | Windows sharing                                                                     | `mailto:` draft to the friend + file shown in Explorer, instead of the Windows share panel (WinRT code that can't be tested yet)                               |
+| Q27 | AI-generated recipes                                                                | **On permanent hold** (owner, 2026-10-23) — spec kept in §7; do not build unless the owner revives it                                                          |
+
+## 7. Ideas on hold
+
+Specs kept for possible future work. **Do not build** any of these unless the owner
+explicitly revives them.
+
+### AI-generated recipes (on permanent hold, 2026-10-23)
+
+**Idea.** An "AI Generated Recipes" button opens a page where the user describes what they
+want in plain English (e.g. "chocolate chip cookies with no seed oils — butter and eggs
+instead") and clicks **Create**. An AI model writes a recipe.
+
+**Flow (fits the existing design).**
+
+- Rust makes the API call (business logic stays in Rust; no official Rust SDK, so plain
+  HTTPS with `reqwest`, like web import).
+- The request uses the provider's structured-output mode with a JSON schema matching
+  Recipio's recipe fields (title, description, servings, prep/cook minutes, ingredients
+  with quantity text/unit/item/prep note and section headings, steps, notes, nutrition).
+- Ingredient quantities come back as text and go through `quantity.rs` /
+  `ingredient_parser.rs`; labels are matched to existing ones only (Q17).
+- The result travels as router state to `/recipes/new` (same as web import's
+  `ImportState`): pre-filled, unsaved, reviewed by the user before saving. AI output is
+  untrusted input, like a fetched page.
+
+**Cost per recipe** (Anthropic prices, Oct 2026; ~1.5K input tokens, ~1.5–3K output
+including thinking):
+
+| Model             | $/1M input / output | Per recipe  | Per 1,000 |
+| ----------------- | ------------------- | ----------- | --------- |
+| Claude Haiku 5.5  | $0.10 / $0.50       | ~$0.001     | ~$1       |
+| Claude Sonnet 5.5 | $2 / $10            | ~$0.02–0.03 | ~$25      |
+| Claude Opus 5.5   | $4 / $20            | ~$0.04–0.06 | ~$50      |
+
+OpenAI and Google are in a similar range. A dish photo would need a separate image API
+(~$0.02–0.08 per image; Claude does not generate images). Compare models on 10–20 real
+requests before choosing.
+
+**Who pays — options considered.**
+
+- **A. Owner's API key.** Can't ship the key in an open-source desktop app (it would be
+  extracted). Needs an owner-run proxy (e.g. a Cloudflare Worker) holding the key, with
+  per-user rate limits and abuse protection; open-ended bill; breaks the local-only, no-server
+  design. Not recommended.
+- **B. User's own API key (recommended if ever built).** Chat subscriptions (ChatGPT Plus,
+  Claude Pro) do **not** include API access. The user creates a developer account
+  (console.anthropic.com or the OpenAI/Google equivalent), adds prepaid credit, and pastes an
+  API key into Settings; store it in the OS keychain. Settings: provider choice + "Test
+  connection". No general "sign in with your AI account" exists for third-party apps.
+- **C. Local model (optional extra).** Ollama / LM Studio on the user's computer: free,
+  offline, private (best fit for Recipio's promise); weaker recipes, needs a capable machine.
+
+**If revived:** add a decisions-log entry for the new network call (the brief allows only
+web import and video downloads); tell the user their description is sent to the chosen
+provider; plan it as its own phase with test steps and owner approval.
