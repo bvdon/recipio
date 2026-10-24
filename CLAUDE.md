@@ -103,8 +103,8 @@ of the recipe (servings, or ×½…×10 when it has none) with kitchen-friendly 
 recipe page has a − n + control by the Ingredients heading (not saved, resets on leaving);
 the PDF uses the scaled amounts; cooking mode does not (owner choice). PLAN.md §3.
 
-All phases are done and approved. Releases: **v0.1.0-beta.2** is the published "Latest"
-release (not marked pre-release, so it shows in the repo sidebar); beta.1 stays as a
+All phases are done and approved. Releases: **v0.1.0-beta.3** (adds scaling) is the published "Latest"
+release (not marked pre-release, so it shows in the repo sidebar); beta.2 is a normal release and beta.1 stays a
 pre-release. Tags carry the beta suffix; app version stays 0.1.0 because the Windows MSI
 rejects pre-release versions. To release: push a `v*` tag → CI makes a draft → `gh release
 edit <tag> --title … --notes-file … --draft=false --prerelease=false --latest`. The owner is using the app and will report findings. Open: Windows/Linux not
