@@ -283,7 +283,8 @@ pub enum WebImport {
     Found {
         recipe: Box<ImportedRecipe>,
     },
-    /// The page loaded but has no schema.org Recipe data; only the link can be kept.
+    /// The page loaded but has no schema.org Recipe data; only the link can be kept. It is
+    /// empty for a saved page whose address isn't known.
     NoRecipe {
         source_url: String,
     },

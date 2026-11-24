@@ -239,6 +239,17 @@ pub async fn import_recipe(state: State<'_, AppState>, url: String) -> AppResult
     web_import::import(&state, &url).await
 }
 
+/// Like `import_recipe`, from a page saved in the user's browser. `url` is the address
+/// field's text and may be empty.
+#[tauri::command]
+pub async fn import_saved_page(
+    state: State<'_, AppState>,
+    path: String,
+    url: String,
+) -> AppResult<WebImport> {
+    web_import::import_saved(&state, std::path::Path::new(&path), &url).await
+}
+
 /// Keeps the screen on while cooking mode is open. Not `async` on purpose: sync commands
 /// run on the main thread, and on Windows the keep-awake request belongs to the thread
 /// that made it. Failure only means the screen may dim, so it's logged, not raised.

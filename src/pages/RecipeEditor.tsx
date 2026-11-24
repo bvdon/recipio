@@ -497,7 +497,8 @@ function EditorForm({
 
 function ImportNotice({ webImport }: { webImport: WebImport }) {
   const url = webImport.outcome === "found" ? webImport.recipe.source_url : webImport.source_url;
-  let host = url;
+  // A saved page doesn't always say where it came from.
+  let host = url || "the saved page";
   try {
     host = new URL(url).hostname.replace(/^www\./, "");
   } catch {

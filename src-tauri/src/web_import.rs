@@ -1,11 +1,15 @@
-//! Web import: fetches a recipe page, reads its schema.org data (`jsonld`), matches its
+//! Web import: fetches a recipe page (or reads one the user saved from their browser), reads its schema.org data (`jsonld`), matches its
 //! categories/keywords to existing labels and stages its photo. Nothing is saved here —
 //! the editor shows the result for review.
 
+use std::path::Path;
 use std::time::Duration;
 
 use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, CONTENT_TYPE, HeaderMap, HeaderValue};
 use reqwest::{StatusCode, Url};
+
+use scraper::{Html, Selector};
+use tokio::io::AsyncReadExt;
 
 use crate::AppState;
 use crate::db::labels;
@@ -15,6 +19,11 @@ use crate::{ingredient_parser, jsonld, video};
 
 const PAGE_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_PAGE_BYTES: usize = 5 * 1024 * 1024;
+/// Saved pages may be larger than fetched ones: browsers can inline a page's assets.
+const MAX_SAVED_PAGE_BYTES: usize = 20 * 1024 * 1024;
+/// Stands in as the base address of a saved page that doesn't say where it came from.
+/// `.invalid` never resolves (RFC 2606); images that end up on it are skipped.
+const UNKNOWN_PAGE: &str = "https://saved-page.invalid/";
 const IMAGE_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 /// Image candidates tried before giving up on the photo.
@@ -29,9 +38,35 @@ pub async fn import(state: &AppState, text: &str) -> AppResult<WebImport> {
     log::info!("importing recipe from {url}");
     let client = client()?;
     let (html, final_url) = fetch_page(&client, &url).await?;
-    let source_url = url.to_string();
-    let Some(found) = jsonld::extract(&html, &final_url) else {
-        log::info!("no recipe data on {final_url}");
+    from_html(state, &client, &html, &final_url, url.to_string()).await
+}
+
+/// Reads the recipe from a page the user saved in their browser, for sites that refuse
+/// the app's own request. `typed_url` is whatever is in the dialog's address field: it is
+/// only used when the file doesn't name its own address, because the file may be a
+/// different page from the one last typed. The page itself is never fetched, only its photo.
+pub async fn import_saved(state: &AppState, path: &Path, typed_url: &str) -> AppResult<WebImport> {
+    log::info!("importing recipe from a saved page");
+    let html = read_saved_page(path).await?;
+    let typed = page_url(typed_url).ok();
+    let source = saved_page_address(&html, typed.as_ref()).or(typed);
+    let source_url = source.as_ref().map(Url::to_string).unwrap_or_default();
+    let base = source
+        .unwrap_or_else(|| Url::parse(UNKNOWN_PAGE).expect("the placeholder address is valid"));
+    from_html(state, &client()?, &html, &base, source_url).await
+}
+
+/// Turns a page's HTML into an import result. `base` resolves the page's relative links;
+/// `source_url` is the address kept with the recipe (empty if unknown).
+async fn from_html(
+    state: &AppState,
+    client: &reqwest::Client,
+    html: &str,
+    base: &Url,
+    source_url: String,
+) -> AppResult<WebImport> {
+    let Some(found) = jsonld::extract(html, base) else {
+        log::info!("no recipe data on {base}");
         return Ok(WebImport::NoRecipe { source_url });
     };
 
@@ -70,8 +105,9 @@ pub async fn import(state: &AppState, text: &str) -> AppResult<WebImport> {
         }
     }
 
-    for image in found.images.iter().take(IMAGE_TRIES) {
-        match fetch_image(state, &client, image).await {
+    let usable_images = found.images.iter().filter(|i| !i.starts_with(UNKNOWN_PAGE));
+    for image in usable_images.take(IMAGE_TRIES) {
+        match fetch_image(state, client, image).await {
             Ok(staged) => {
                 recipe.photo = Some(staged);
                 break;
@@ -235,6 +271,91 @@ async fn fetch_page(client: &reqwest::Client, url: &Url) -> AppResult<(String, U
     Ok((decode(&body, &content_type), final_url))
 }
 
+/// Reads and decodes a saved HTML file, explaining the formats Recipio can't use.
+async fn read_saved_page(path: &Path) -> AppResult<String> {
+    // Checked before opening, since opening a pipe could wait forever.
+    if !tokio::fs::metadata(path).await?.is_file() {
+        return Err(AppError::Validation("Please choose a file.".into()));
+    }
+    // Read one byte past the limit so an oversized file is noticed without loading it all.
+    let mut body = Vec::new();
+    tokio::fs::File::open(path)
+        .await?
+        .take(MAX_SAVED_PAGE_BYTES as u64 + 1)
+        .read_to_end(&mut body)
+        .await?;
+    if body.len() > MAX_SAVED_PAGE_BYTES {
+        return Err(import_error(
+            "That file is too large to read.",
+            format!("over {MAX_SAVED_PAGE_BYTES} bytes"),
+        ));
+    }
+    saved_page_text(&body)
+}
+
+/// The HTML of a saved page, judged by its content rather than its file extension.
+fn saved_page_text(body: &[u8]) -> AppResult<String> {
+    // Safari's default format is a binary property list.
+    if body.starts_with(b"bplist") {
+        return Err(AppError::Validation(
+            "That’s a Safari web archive. Save the page again and choose “Page Source” as the \
+             format."
+                .into(),
+        ));
+    }
+    let html = decode(body, "");
+    // ASCII lowercasing keeps byte offsets, and the headers checked here are all ASCII.
+    let start: String = html
+        .chars()
+        .take(4096)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    // Chrome and Edge's "single file" format is a MIME message with encoded HTML inside.
+    if start.contains("multipart/related") && start.contains("mime-version:") {
+        return Err(AppError::Validation(
+            "That’s a single-file web page. Save the page again and choose “Webpage, HTML Only” \
+             as the format."
+                .into(),
+        ));
+    }
+    // A NUL means binary data; a page always has a tag near the top.
+    if start.contains('\0') || !start.contains('<') {
+        return Err(AppError::Validation(
+            "That file isn’t a saved web page.".into(),
+        ));
+    }
+    // Saved before the browser check finished: this is Cloudflare's interstitial.
+    if start.contains("<title>just a moment...</title>") {
+        return Err(AppError::Validation(
+            "That file is the site’s “Just a moment…” page. Wait until the recipe appears in \
+             your browser, then save again."
+                .into(),
+        ));
+    }
+    Ok(html)
+}
+
+/// The address a saved page gives for itself (`canonical`, else `og:url`). It is held to
+/// the same checks as a typed one, since the file's content is untrusted.
+fn saved_page_address(html: &str, typed: Option<&Url>) -> Option<Url> {
+    let doc = Html::parse_document(html);
+    [
+        (r#"link[rel~="canonical" i]"#, "href"),
+        (r#"meta[property="og:url" i]"#, "content"),
+    ]
+    .iter()
+    .find_map(|(selector, attribute)| {
+        let selector = Selector::parse(selector).expect("valid selector");
+        let address = doc.select(&selector).next()?.attr(attribute)?.trim();
+        // Relative addresses only make sense next to a known one.
+        let absolute = match typed {
+            Some(base) => base.join(address).ok()?,
+            None => Url::parse(address).ok()?,
+        };
+        page_url(absolute.as_str()).ok()
+    })
+}
+
 /// The body, or `None` if it's larger than `max` bytes.
 async fn read_capped(mut resp: reqwest::Response, max: usize) -> reqwest::Result<Option<Vec<u8>>> {
     if resp.content_length().is_some_and(|n| n > max as u64) {
@@ -332,17 +453,13 @@ fn request_error(e: reqwest::Error) -> AppError {
 }
 
 fn status_error(status: StatusCode) -> AppError {
+    let detail = format!("HTTP {status}");
     let message = match status.as_u16() {
+        401 | 403 | 429 | 503 => return AppError::ImportBlocked { detail },
         404 | 410 => "That page wasn’t found. Please check the address.".to_string(),
-        401 | 403 | 429 | 503 => "The site refused the request. Some sites block apps from \
-                                 reading their pages; you can still add the recipe by hand."
-            .to_string(),
         code => format!("The site returned an error (HTTP {code}). Please try again later."),
     };
-    AppError::Import {
-        message,
-        detail: format!("HTTP {status}"),
-    }
+    AppError::Import { message, detail }
 }
 
 #[cfg(test)]
@@ -438,7 +555,76 @@ mod tests {
         let msg = |code| status_error(StatusCode::from_u16(code).unwrap()).user_message();
         assert!(msg(404).contains("wasn’t found"));
         assert!(msg(403).contains("refused"));
+        assert!(matches!(
+            status_error(StatusCode::FORBIDDEN),
+            AppError::ImportBlocked { .. }
+        ));
         assert!(msg(500).contains("HTTP 500"));
+    }
+
+    #[tokio::test]
+    async fn reads_a_saved_page() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/wprm_graph.html");
+        let html = read_saved_page(&path).await.unwrap();
+        let base = Url::parse(UNKNOWN_PAGE).unwrap();
+        assert!(
+            !jsonld::extract(&html, &base)
+                .unwrap()
+                .ingredients
+                .is_empty()
+        );
+        // A folder is not a page.
+        assert!(read_saved_page(path.parent().unwrap()).await.is_err());
+        // Nor is a file past the size limit.
+        let big = tempfile::NamedTempFile::new().unwrap();
+        big.as_file()
+            .set_len(MAX_SAVED_PAGE_BYTES as u64 + 1)
+            .unwrap();
+        let error = read_saved_page(big.path()).await.unwrap_err();
+        assert!(error.user_message().contains("too large"));
+    }
+
+    #[test]
+    fn explains_unusable_saved_files() {
+        let message = |body: &[u8]| saved_page_text(body).unwrap_err().user_message();
+        assert!(message(b"bplist00\xd1\x01").contains("Page Source"));
+        assert!(
+            message(b"MIME-Version: 1.0\r\nContent-Type: multipart/related;\r\n\r\n<html>")
+                .contains("HTML Only")
+        );
+        assert!(message(b"\x89PNG\r\n\x1a\n\0\0<").contains("isn’t a saved web page"));
+        assert!(message(b"flour, sugar").contains("isn’t a saved web page"));
+        assert!(message(b"").contains("isn’t a saved web page"));
+        assert!(message(b"<html><title>Just a moment...</title>").contains("recipe appears"));
+        assert!(saved_page_text("<html>Crème".as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn finds_a_saved_pages_address() {
+        let address = |html: &str, typed: Option<&str>| {
+            let typed = typed.map(|t| Url::parse(t).unwrap());
+            saved_page_address(html, typed.as_ref()).map(|u| u.to_string())
+        };
+        let canonical = r#"<link rel="canonical" href="https://example.com/soup/">"#;
+        let og = r#"<meta property="og:url" content="https://example.com/stew/">"#;
+        let relative = r#"<link rel="canonical" href="/pie/">"#;
+        let typed = Some("https://example.com/other");
+        // The file's own address wins over the typed one.
+        assert_eq!(
+            address(&format!("{og}{canonical}"), typed).unwrap(),
+            "https://example.com/soup/"
+        );
+        assert_eq!(address(og, None).unwrap(), "https://example.com/stew/");
+        assert_eq!(
+            address(relative, typed).unwrap(),
+            "https://example.com/pie/"
+        );
+        assert_eq!(address(relative, None), None);
+        assert_eq!(address("<html>", typed), None);
+        for bad in ["file:///etc/passwd", "http://192.168.1.1/", "javascript:x"] {
+            let html = format!(r#"<link rel="canonical" href="{bad}">"#);
+            assert_eq!(address(&html, typed), None, "{bad}");
+        }
     }
 
     /// Fetches real pages: `RECIPIO_IMPORT_URLS="url1 url2" cargo test -- --ignored live_import --nocapture`.

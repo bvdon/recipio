@@ -8,7 +8,7 @@ Local-only storage (SQLite + media folder in the OS app data dir). MIT, public G
 
 1. `PROMPT.md` — the owner's original build brief (requirements, phases, quality bar).
    Local only, gitignored (contains personal details); if missing, `docs/PLAN.md` covers it.
-2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q26).
+2. `docs/PLAN.md` — architecture, data model, dependency choices, decisions log (Q1–Q28).
 3. "Current status" below.
 
 ## Working rules (from the brief)
@@ -102,6 +102,10 @@ Servings scaling (owner request, 2026-10-24, after v0.1.0-beta.2): `scaling.rs` 
 of the recipe (servings, or ×½…×10 when it has none) with kitchen-friendly rounding; the
 recipe page has a − n + control by the Ingredients heading (not saved, resets on leaving);
 the PDF uses the scaled amounts; cooking mode does not (owner choice). PLAN.md §3.
+
+Saved-page import (owner request, 2026-11-24, unreleased, awaiting owner test): sites that
+block apps → `AppError::ImportBlocked` → the import dialog takes an HTML page saved from the
+browser (chosen or dropped; `web_import::import_saved`). Never bypass the block itself (Q28).
 
 All phases are done and approved. Releases: **v0.1.0-beta.3** (adds scaling) is the published "Latest"
 release (not marked pre-release, so it shows in the repo sidebar); beta.2 is a normal release and beta.1 stays a

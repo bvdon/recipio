@@ -175,6 +175,7 @@ pub fn run() {
             commands::tools_status,
             commands::install_tools,
             commands::import_recipe,
+            commands::import_saved_page,
             commands::set_keep_awake,
             commands::library_stats,
             commands::export_backup,

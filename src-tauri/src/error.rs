@@ -31,6 +31,10 @@ pub enum AppError {
     /// A web import problem; `message` is already plain language.
     #[error("{message}\n{detail}")]
     Import { message: String, detail: String },
+    /// The site refused to serve the page to the app. Its own kind, so the UI can offer
+    /// importing a copy the user saved from their browser instead.
+    #[error("the site refused the request\n{detail}")]
+    ImportBlocked { detail: String },
     #[error("cancelled")]
     Cancelled,
 }
@@ -49,6 +53,7 @@ impl AppError {
             AppError::UnsupportedPlatform => "unsupported",
             AppError::Video { .. } => "video",
             AppError::Import { .. } => "import",
+            AppError::ImportBlocked { .. } => "import_blocked",
             AppError::Cancelled => "cancelled",
         }
     }
@@ -72,6 +77,9 @@ impl AppError {
                 "Video downloads aren't available on this kind of computer.".into()
             }
             AppError::Video { message, .. } | AppError::Import { message, .. } => message.clone(),
+            AppError::ImportBlocked { .. } => {
+                "The site refused the request. Some sites block apps from reading their pages.".into()
+            }
             AppError::Cancelled => "Cancelled.".into(),
         }
     }

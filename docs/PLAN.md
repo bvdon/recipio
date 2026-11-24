@@ -235,6 +235,15 @@ structured data, say so and keep just the URL.
   recipe) — not copies of real pages. Live check:
   `RECIPIO_IMPORT_URLS="<url> <url>" cargo test -- --ignored live_import --nocapture`.
   Checked 2026-10-23 against 13 real recipe sites (all read correctly) and a page without a recipe.
+- **Saved pages (owner request, 2026-11-24; Q28):** some sites refuse apps (401/403/429/503,
+  e.g. a Cloudflare browser check). `AppError::ImportBlocked` (kind `import_blocked`) makes
+  the dialog explain how to save the page in a browser; the file is chosen or dropped on
+  the window (`import_saved_page`, always available in the dialog). Same extraction as
+  above; the page is never fetched, only its photo (the same request as before; a refusal
+  is a warning). HTML files ≤ 20 MB; Safari web archives, MHTML and Cloudflare's "Just a
+  moment…" page get their own message. Source address: the file's `canonical`, else
+  `og:url` (checked like a typed address), else the address field, else empty. No
+  fingerprint spoofing, challenge solving or proxies.
 
 ### Cooking mode (as built)
 
@@ -502,6 +511,7 @@ is available.
 | Q25 | Friends / sharing with friends                                                      | Option 3 (2026-10-23): native sharing (Messages/Mail/AirDrop, Windows share) + `.recipio` file association; no servers, no in-app chat. Phase 8, after Phase 7 |
 | Q26 | Windows sharing                                                                     | `mailto:` draft to the friend + file shown in Explorer, instead of the Windows share panel (WinRT code that can't be tested yet)                               |
 | Q27 | AI-generated recipes                                                                | **On permanent hold** (owner, 2026-10-23) — spec kept in §7; do not build unless the owner revives it                                                          |
+| Q28 | Sites that block apps                                                               | Import a page the user saved from their browser (2026-11-24); never bypass the block itself                                                                    |
 
 ## 7. Ideas on hold
 

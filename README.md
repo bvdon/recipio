@@ -14,6 +14,7 @@ Built with [Tauri v2](https://tauri.app), Rust and React.
   quantity, unit, ingredient and preparation note.
 - **Import from the web**: paste a recipe page's address; Recipio reads the recipe data
   most sites publish (schema.org JSON-LD) and fills in the editor for you to check.
+  If a site blocks apps, import a copy of the page saved from your browser instead.
 - **Offline YouTube videos**: paste a link and the video is downloaded (up to 1080p,
   H.264/AAC MP4) and plays inside the app, with bookmarks to jump to sections.
 - **Cooking mode**: full screen, one step at a time, arrow keys, ingredients to tick off,

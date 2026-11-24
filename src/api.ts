@@ -32,6 +32,10 @@ export function errorMessage(err: unknown): string {
   return String(err);
 }
 
+/** The site refused the app's request (see `AppError::ImportBlocked`). */
+export const isImportBlocked = (err: unknown) =>
+  (err as AppError | null)?.kind === "import_blocked";
+
 export const api = {
   newRecipeId: () => invoke<string>("new_recipe_id"),
   listRecipes: (query: RecipeQuery) => invoke<RecipeSummary[]>("list_recipes", { query }),
@@ -58,6 +62,8 @@ export const api = {
   toolsStatus: () => invoke<ToolInfo[]>("tools_status"),
   installTools: (update: boolean) => invoke<Package[]>("install_tools", { update }),
   importRecipe: (url: string) => invoke<WebImport>("import_recipe", { url }),
+  importSavedPage: (path: string, url: string) =>
+    invoke<WebImport>("import_saved_page", { path, url }),
   setKeepAwake: (on: boolean) => invoke<void>("set_keep_awake", { on }),
   libraryStats: (ids?: string[]) => invoke<LibraryStats>("library_stats", { ids: ids ?? null }),
   exportBackup: (path: string, includeVideos: boolean) =>
