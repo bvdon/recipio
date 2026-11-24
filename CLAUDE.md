@@ -103,8 +103,8 @@ of the recipe (servings, or ×½…×10 when it has none) with kitchen-friendly 
 recipe page has a − n + control by the Ingredients heading (not saved, resets on leaving);
 the PDF uses the scaled amounts; cooking mode does not (owner choice). PLAN.md §3.
 
-Saved-page import (owner request, 2026-11-24, unreleased, awaiting owner test): sites that
-block apps → `AppError::ImportBlocked` → the import dialog takes an HTML page saved from the
+Saved-page import (owner request, 2026-11-24, done, approved, unreleased): sites that
+block apps (Cloudflare browser check, HTTP 403) → `AppError::ImportBlocked` → the import dialog takes an HTML page saved from the
 browser (chosen or dropped; `web_import::import_saved`). Never bypass the block itself (Q28).
 
 All phases are done and approved. Releases: **v0.1.0-beta.3** (adds scaling) is the published "Latest"
